@@ -1448,9 +1448,14 @@ fn handle_in_body_start_tag(
         }
         helpers::reconstruct_active_formatting_elements(parser);
         helpers::insert_element(parser, tag);
-        // §13.2.6.4.7 "A start tag whose tag name is 'select'": only
-        // reconstruct, insert, and set frameset-ok to not-ok. No marker
-        // is inserted (markers are only for applet/marquee/object).
+        // §13.2.6.4.7 "A start tag whose tag name is 'select'": insert a
+        // marker at the end of the list of active formatting elements.
+        // This prevents the adoption agency algorithm from cloning
+        // formatting elements opened before <select> (e.g. <font>) into
+        // the select subtree when their end tag is encountered inside
+        // <select>. Without this marker, </font> inside <select> would
+        // trigger AAA, clone <font>, and reparent <select> into the clone.
+        helpers::add_formatting_marker(parser);
         parser.frameset_ok = false;
         return Step::Done;
     }
