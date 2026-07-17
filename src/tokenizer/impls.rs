@@ -2925,6 +2925,7 @@ impl HtmlTokenizer {
             Some(_) => {
                 self.current_doctype.force_quirks = true;
                 self.state = State::BogusDoctype;
+                self.reconsume = true;
                 None
             }
         }
@@ -2956,6 +2957,7 @@ impl HtmlTokenizer {
                 // TODO: parse error
                 self.current_doctype.force_quirks = true;
                 self.state = State::BogusDoctype;
+                self.reconsume = true;
                 None
             }
         }
@@ -3050,6 +3052,7 @@ impl HtmlTokenizer {
             Some(_) => {
                 self.current_doctype.force_quirks = true;
                 self.state = State::BogusDoctype;
+                self.reconsume = true;
                 None
             }
         }
@@ -3083,6 +3086,7 @@ impl HtmlTokenizer {
                 // (No SYSTEM keyword matching in this state — that's §13.2.5.55/57's job.)
                 self.current_doctype.force_quirks = true;
                 self.state = State::BogusDoctype;
+                self.reconsume = true;
                 None
             }
         }
@@ -3129,6 +3133,7 @@ impl HtmlTokenizer {
             Some(_) => {
                 self.current_doctype.force_quirks = true;
                 self.state = State::BogusDoctype;
+                self.reconsume = true;
                 None
             }
         }
@@ -3156,6 +3161,7 @@ impl HtmlTokenizer {
             Some(_) => {
                 self.current_doctype.force_quirks = true;
                 self.state = State::BogusDoctype;
+                self.reconsume = true;
                 None
             }
         }
@@ -3230,7 +3236,9 @@ impl HtmlTokenizer {
             }
             Some(_) => {
                 // TODO: parse error (unexpected-character-after-doctype-system-identifier)
+                // §13.2.5.67: Reconsume in the bogus DOCTYPE state.
                 self.state = State::BogusDoctype;
+                self.reconsume = true;
                 None
             }
         }
@@ -3469,13 +3477,29 @@ impl HtmlTokenizer {
                 Some(Token::Comment(comment))
             }
             Some(_c) => {
-                // §13.2.5.49: `!` appended by §13.2.5.46, two `-`s consumed
-                // by §13.2.5.47/.48 `-` branches need catching up. Append
-                // `--`, reconsume in Comment. Verified by html5lib:
-                // `<!-- <!--test-->` → Comment " <!--test".
-                self.current_comment.push_str("--");
+                // §13.2.5.49: "Anything else: This is a nested-comment
+                // parse error. Reconsume in the comment end state."
+                //
+                // No append here: the two `-`s consumed by §13.2.5.47/.48
+                // `-` branches (to reach this state) are caught up by the
+                // comment END state's own anything-else arm, which appends
+                // `--` (its catch-up for entering CommentEnd). Appending
+                // `--` here too would double the catch-up.
+                //
+                // Why CommentEnd (not Comment): the nested-comment feature
+                // exists so `<!--<!--` can be closed by a following `>`
+                // (CommentEnd `>` emits; CommentEnd `!`→CommentEndBang `>`
+                // emits). Reconsuming in Comment would append `>` literally
+                // and the comment would never close, e.g. `<!--<!--!>`
+                // must close at `>` rather than swallowing it as content.
+                //
+                // html5lib coverage: every test1.test case reaching this
+                // branch reconsumes an ordinary char (`t`), so CommentEnd
+                // appends `--` (catch-up) then reconsumes `t` in Comment —
+                // yielding `<!-- <!--test-->` → `Comment " <!--test"`. The
+                // `!`/`-` differentiating paths are untested upstream.
                 self.reconsume = true;
-                self.state = State::Comment;
+                self.state = State::CommentEnd;
                 None
             }
             None => {
@@ -4981,8 +5005,10 @@ mod tests {
         assert_eq!(t.step(), None); // LessThanSign → Bang ('!')
         assert_eq!(t.step(), None); // Bang → BangDash ('-')
         assert_eq!(t.step(), None); // BangDash → BangDashDash ('-')
-                                    // BangDashDash 总是回到 Comment（任意字符 reconsume）
-        assert_eq!(t.state(), State::Comment);
+                                    // §13.2.5.49: anything else reconsumes in CommentEnd
+                                    // (not Comment). CommentEnd's anything-else arm appends
+                                    // `--` as catch-up, then reconsumes `b` in Comment.
+        assert_eq!(t.state(), State::CommentEnd);
     }
 
     #[test]
