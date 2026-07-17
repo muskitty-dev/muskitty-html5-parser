@@ -1073,20 +1073,20 @@ fn handle_in_body_start_tag(
         return Step::Done;
     }
 
-    // form: close p; if form_element is set, parse error; else insert and
-    // set form_element.
+    // form (§13.2.6.4.7 "A start tag whose tag name is 'form'"):
+    // 1. If the form element pointer is not null, and there is no template
+    //    element on the stack of open elements, then this is a parse error;
+    //    ignore the token.
+    // 2. Otherwise: close p if in button scope, insert form, set pointer.
     if name == "form" {
-        if helpers::has_element_in_button_scope(parser, "p") {
-            helpers::close_p_element(parser);
-        }
-        if parser.form_element.is_some() {
+        if parser.form_element.is_some() && !template_in_stack(parser) {
             parser
                 .errors
                 .push(ParseError::Generic("nested form element"));
-            // Per spec, ignore the start tag entirely if form pointer set
-            // AND template content exists. Skeleton ignores the second
-            // condition and just drops the tag.
             return Step::Done;
+        }
+        if helpers::has_element_in_button_scope(parser, "p") {
+            helpers::close_p_element(parser);
         }
         let element = helpers::create_element_for_token(parser, tag);
         helpers::insert_node(parser, &element);
@@ -1448,13 +1448,9 @@ fn handle_in_body_start_tag(
         }
         helpers::reconstruct_active_formatting_elements(parser);
         helpers::insert_element(parser, tag);
-        // §13.2.6.4.7: "immediately followed by a marker in the active
-        // formatting elements list." The marker prevents any formatting
-        // element opened before <select> from being reconstructed inside
-        // the select subtree.
-        parser
-            .active_formatting_elements
-            .push(ActiveFormattingEntry::Marker);
+        // §13.2.6.4.7 "A start tag whose tag name is 'select'": only
+        // reconstruct, insert, and set frameset-ok to not-ok. No marker
+        // is inserted (markers are only for applet/marquee/object).
         parser.frameset_ok = false;
         return Step::Done;
     }
