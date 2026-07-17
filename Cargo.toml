@@ -14,7 +14,7 @@ categories = ["parser-implementations", "web-programming"]
 authors = ["MusCat / MusKitty Bit-Torch Community"]
 
 [dependencies]
-muskitty-dom = { path = "../muskitty-dom" }
+muskitty-dom = { git = "https://github.com/muskitty/muskitty.git" }
 
 [dev-dependencies]
 serde_json = "1"
