@@ -1,7 +1,17 @@
 [package]
-name = "muskitty-html-parser"
+name = "muskitty-html5-parser"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.70"
+license = "Apache-2.0"
+description = "A from-scratch HTML5 parser implementing the WHATWG HTML Living Standard"
+repository = "https://github.com/muskitty/muskitty-html5-parser"
+homepage = "https://github.com/muskitty"
+documentation = "https://docs.rs/muskitty-html5-parser"
+readme = "README.md"
+keywords = ["html", "html5", "parser", "whatwg", "tokenizer"]
+categories = ["parser-implementations", "web-programming"]
+authors = ["MusCat / MusKitty Bit-Torch Community"]
 
 [dependencies]
 muskitty-dom = { path = "../muskitty-dom" }
