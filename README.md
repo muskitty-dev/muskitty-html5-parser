@@ -1,13 +1,18 @@
 # muskitty-html5-parser
 
+[![crates.io](https://img.shields.io/crates/v/muskitty-html5-parser.svg)](https://crates.io/crates/muskitty-html5-parser)
+[![Documentation](https://docs.rs/muskitty-html5-parser/badge.svg)](https://docs.rs/muskitty-html5-parser)
+[![License](https://img.shields.io/crates/l/muskitty-html5-parser.svg)](https://github.com/muskitty-dev/muskitty-html5-parser/blob/main/LICENSE)
+[![CI](https://github.com/muskitty-dev/muskitty-html5-parser/actions/workflows/ci.yml/badge.svg)](https://github.com/muskitty-dev/muskitty-html5-parser/actions/workflows/ci.yml)
+
 A from-scratch HTML5 parser written in pure Rust, implementing the [WHATWG HTML Living Standard](https://html.spec.whatwg.org/) with zero runtime dependencies.
 
-Part of the [MusKitty](https://github.com/bit-torch/MusKitty) browser engine project.
+Part of the [MusKitty](https://github.com/muskitty-dev) browser engine project.
 
 ## Status
 
 | Component | Spec Coverage | Test Pass Rate |
-|-----------|--------------|----------------|
+|-----------|---------------|----------------|
 | **Tokenizer** (§13.2.5) | 85/85 states | [99.8%](https://github.com/html5lib/html5lib-tests) (7022/7036) |
 | **Tree Construction** (§13.2.6) | 21/21 insertion modes | [100%](https://github.com/html5lib/html5lib-tests) (1716/1716) |
 
@@ -16,10 +21,25 @@ Part of the [MusKitty](https://github.com/bit-torch/MusKitty) browser engine pro
 - Rust stable toolchain only
 - html5lib-tests suite as ground truth
 
+## Installation
+
+Add this to your `Cargo.toml`:
+
+```toml
+[dependencies]
+muskitty-html5-parser = "0.1.0"
+```
+
+Or run:
+
+```bash
+cargo add muskitty-html5-parser
+```
+
 ## Quick Start
 
 ```rust
-use muskitty_html_parser::parse;
+use muskitty_html5_parser::parse;
 
 let document = parse("<!DOCTYPE html><html><head><title>Hello</title></head><body><p>World</p></body></html>");
 // Returns an Rc<RefCell<Node>> DOM tree
@@ -81,14 +101,14 @@ Input codepoints → Tokenizer (§13.2.5) → Token stream → Tree Construction
 
 ```bash
 cargo check                          # Workspace check (must be zero warnings)
-cargo check -p muskitty-html-parser  # Parser crate only
+cargo check -p muskitty-html5-parser # Parser crate only
 ```
 
 ## Testing
 
 ```bash
 # Unit tests (145 tests)
-cargo test -p muskitty-html-parser --lib
+cargo test -p muskitty-html5-parser --lib
 
 # html5lib tokenizer suite (7036 tests)
 cargo test --test html5lib_tokenizer -- --nocapture
