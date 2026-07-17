@@ -2,7 +2,7 @@
 
 A from-scratch HTML5 parser written in pure Rust, implementing the [WHATWG HTML Living Standard](https://html.spec.whatwg.org/) with zero runtime dependencies.
 
-Part of the [MusKitty](https://github.com/muskitty) browser engine project.
+Part of the [MusKitty](https://github.com/bit-torch/MusKitty) browser engine project.
 
 ## Status
 

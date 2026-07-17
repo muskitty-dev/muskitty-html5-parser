@@ -5,8 +5,8 @@ edition = "2021"
 rust-version = "1.70"
 license = "Apache-2.0"
 description = "A from-scratch HTML5 parser implementing the WHATWG HTML Living Standard"
-repository = "https://github.com/muskitty/muskitty-html5-parser"
-homepage = "https://github.com/muskitty"
+repository = "https://github.com/bit-torch/muskitty-html5-parser"
+homepage = "https://github.com/bit-torch"
 documentation = "https://docs.rs/muskitty-html5-parser"
 readme = "README.md"
 keywords = ["html", "html5", "parser", "whatwg", "tokenizer"]
@@ -14,7 +14,7 @@ categories = ["parser-implementations", "web-programming"]
 authors = ["MusCat / MusKitty Bit-Torch Community"]
 
 [dependencies]
-muskitty-dom = { git = "https://github.com/muskitty/muskitty.git" }
+muskitty-dom = { git = "https://github.com/bit-torch/MusKitty.git" }
 
 [dev-dependencies]
 serde_json = "1"
