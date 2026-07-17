@@ -3322,12 +3322,13 @@ fn handle_after_after_frameset(
 /// condition sets the new insertion mode. If no condition matches, the
 /// insertion mode is set to InBody.
 pub fn reset_insertion_mode(parser: &mut HtmlTreeConstructor) {
-    let last = parser.open_elements.len() - 1;
-    // Per §13.2.6.4.2, iterate from the TOP of the stack (last element)
-    // downward. Iterating forward would incorrectly match <head> before
-    // <body>, returning InHead instead of InBody.
+    // §13.2.6.4.2: walk the stack of open elements from the top (last
+    // node) downward. `last` is true when processing the FIRST node in
+    // the stack (index 0), per §13.2.6.2 step 3: "If node is the first
+    // node in the stack of open elements, then set last to true."
+    // Iterating forward would incorrectly match <head> before <body>.
     for (i, node) in parser.open_elements.iter().enumerate().rev() {
-        let is_last = i == last;
+        let is_last = i == 0;
         let local = node
             .borrow()
             .kind
@@ -3387,10 +3388,16 @@ pub fn reset_insertion_mode(parser: &mut HtmlTreeConstructor) {
                 }
             }
             "head" => {
-                // Per §13.2.6.4.2, head always switches to InHead (no
-                // "not the last" condition, unlike td/th).
-                parser.insertion_mode = InsertionMode::InHead;
-                return;
+                // §13.2.6.2: "If node is a head element and last is
+                // false, then switch the insertion mode to 'in head'
+                // and return." When `is_last` (node is the first/bottom
+                // node), fall through to the loop-exit fallback which
+                // sets InBody (per §13.2.6.2 "If last is true, then
+                // switch the insertion mode to 'in body'").
+                if !is_last {
+                    parser.insertion_mode = InsertionMode::InHead;
+                    return;
+                }
             }
             "body" => {
                 parser.insertion_mode = InsertionMode::InBody;
