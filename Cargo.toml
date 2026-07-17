@@ -1,0 +1,10 @@
+[package]
+name = "muskitty-html-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+muskitty-dom = { path = "../muskitty-dom" }
+
+[dev-dependencies]
+serde_json = "1"
