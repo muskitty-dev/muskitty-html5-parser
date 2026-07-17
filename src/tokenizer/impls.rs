@@ -2115,29 +2115,29 @@ impl HtmlTokenizer {
         let next_is_semicolon = self.input.get(self.pos).copied() == Some(';');
 
         // Find the longest prefix of `temporary_buffer` that matches an
-        // entity name. The `prefix + ";"` form is only valid when L equals
-        // the full buffer length, because `;` (if present) is adjacent only
-        // to the end of the buffer — not to any shorter prefix. For shorter
-        // prefixes, the char immediately after the prefix is another
-        // alphanumeric, never `;`. `match_len` counts total consumed chars
-        // including `;` when `has_semi` is true.
+        // entity name. The `prefix + ";"` form is only valid when the prefix
+        // length equals the full buffer length, because `;` (if present) is
+        // adjacent only to the end of the buffer — not to any shorter prefix.
+        // For shorter prefixes, the char immediately after the prefix is
+        // another alphanumeric, never `;`. `match_len` counts total consumed
+        // chars including `;` when `has_semi` is true.
         let buf_len = self.temporary_buffer.len();
         let mut best_match: Option<(usize, &'static str, bool)> = None;
-        for L in (1..=buf_len).rev() {
+        for l in (1..=buf_len).rev() {
             if best_match.is_some() {
                 break;
             }
-            if next_is_semicolon && L == buf_len {
-                let mut with_semi = String::with_capacity(L + 1);
+            if next_is_semicolon && l == buf_len {
+                let mut with_semi = String::with_capacity(l + 1);
                 with_semi.push_str(&self.temporary_buffer);
                 with_semi.push(';');
                 if let Some(s) = Self::resolve_named_entity(&with_semi) {
-                    best_match = Some((L + 1, s, true));
+                    best_match = Some((l + 1, s, true));
                     continue;
                 }
             }
-            if let Some(s) = Self::resolve_named_entity(&self.temporary_buffer[..L]) {
-                best_match = Some((L, s, false));
+            if let Some(s) = Self::resolve_named_entity(&self.temporary_buffer[..l]) {
+                best_match = Some((l, s, false));
             }
         }
 
