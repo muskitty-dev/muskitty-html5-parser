@@ -11,17 +11,14 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use muskitty_dom::{Node, NodeKind, NodeType};
-use muskitty_html_parser::parse;
+use muskitty_html5_parser::parse;
 
 /// Find the first descendant element with the given node_name (uppercase,
 /// per DOM §6.1 HTML-namespace convention).
 fn find_element_by_name(root: &Rc<RefCell<Node>>, name: &str) -> Option<Rc<RefCell<Node>>> {
-    for desc in Node::descendants(root) {
-        if desc.borrow().node_type == NodeType::Element && desc.borrow().node_name == name {
-            return Some(desc);
-        }
-    }
-    None
+    Node::descendants(root).find(|desc| {
+        desc.borrow().node_type == NodeType::Element && desc.borrow().node_name == name
+    })
 }
 
 /// Collect the node_names of all direct children of a node (uppercase).

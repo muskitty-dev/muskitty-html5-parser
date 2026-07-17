@@ -13,7 +13,7 @@
 //! Instead it collects all results, prints a detailed report, and only
 //! fails the `#[test]` at the end so the full picture is always visible.
 
-use muskitty_html_parser::tokenizer::{HtmlTokenizer, State, Token, Tokenizer};
+use muskitty_html5_parser::tokenizer::{HtmlTokenizer, State, Token, Tokenizer};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
@@ -109,7 +109,7 @@ impl ExpectedToken {
     /// Parse a single html5lib token array, e.g. `["StartTag", "p", {"a":"b"}, true]`.
     fn from_json(arr: &[Value], double_escaped: bool) -> Result<Self, String> {
         let kind = arr
-            .get(0)
+            .first()
             .and_then(|v| v.as_str())
             .ok_or_else(|| "missing token kind".to_string())?;
         match kind {
@@ -219,7 +219,7 @@ fn actual_to_expected(tokens: &[Token]) -> Vec<ExpectedToken> {
                         force_quirks: d.force_quirks,
                     }),
                     Token::Tag(tg) => match tg.kind {
-                        muskitty_html_parser::tokenizer::TagKind::Start => {
+                        muskitty_html5_parser::tokenizer::TagKind::Start => {
                             let mut a = tg.attrs.clone();
                             a.sort_by(|x, y| x.0.cmp(&y.0));
                             out.push(ExpectedToken::StartTag {
@@ -228,7 +228,7 @@ fn actual_to_expected(tokens: &[Token]) -> Vec<ExpectedToken> {
                                 self_closing: tg.self_closing,
                             });
                         }
-                        muskitty_html_parser::tokenizer::TagKind::End => {
+                        muskitty_html5_parser::tokenizer::TagKind::End => {
                             out.push(ExpectedToken::EndTag {
                                 name: tg.name.clone(),
                             })

@@ -48,7 +48,9 @@ pub fn parse(input: &str) -> Rc<RefCell<Node>> {
         // open elements stack state.
         let in_foreign = constructor.current_node_in_foreign_content();
         tokenizer.set_foreign_content(in_foreign);
-        let Some(token) = tokenizer.next_token() else { break };
+        let Some(token) = tokenizer.next_token() else {
+            break;
+        };
         constructor.run(&token, &mut tokenizer);
         if matches!(token, Token::EOF) {
             break;

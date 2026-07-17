@@ -206,7 +206,7 @@ impl HtmlTokenizer {
             return Some(token);
         }
 
-        let result = match self.state {
+        match self.state {
             State::Data => self.handle_data_state(),
             State::TagOpen => self.handle_tag_open_state(),
             State::EndTagOpen => self.handle_end_tag_open_state(),
@@ -328,8 +328,7 @@ impl HtmlTokenizer {
             State::ProcessingInstructionQuestionable => {
                 self.handle_processing_instruction_questionable_state()
             }
-        };
-        result
+        }
     }
 }
 
@@ -2171,14 +2170,14 @@ impl HtmlTokenizer {
                 // the next input char is `=` or ASCII alphanumeric, flush
                 // as literal (don't resolve the entity).
                 let next_after_match = self.input.get(self.pos).copied();
-                if in_attr && !has_semi {
-                    if next_after_match == Some('=')
-                        || matches!(next_after_match, Some(c) if c.is_ascii_alphanumeric())
-                    {
-                        self.flush_literal_ampersand_and_name(return_state);
-                        self.state = return_state;
-                        return None;
-                    }
+                if in_attr
+                    && !has_semi
+                    && (next_after_match == Some('=')
+                        || matches!(next_after_match, Some(c) if c.is_ascii_alphanumeric()))
+                {
+                    self.flush_literal_ampersand_and_name(return_state);
+                    self.state = return_state;
+                    return None;
                 }
 
                 // Normal path: emit resolved char(s). (Missing-semicolon
@@ -2580,7 +2579,7 @@ impl HtmlTokenizer {
     /// converted to a comment or used to create a PI token.
     fn handle_processing_instruction_target_state(&mut self) -> Option<Token> {
         match self.next_char() {
-            Some(c) if matches!(c, '\t' | '\n' | '\u{000C}' | ' ' | '?' | '>') => {
+            Some('\t' | '\n' | '\u{000C}' | ' ' | '?' | '>') => {
                 let target = self.temporary_buffer.clone();
                 // Disallowed targets: "xml" or "xml-stylesheet" (ASCII
                 // case-insensitive) → parse error, convert to comment.
@@ -2622,7 +2621,7 @@ impl HtmlTokenizer {
     /// character is reconsumed in the data state.
     fn handle_after_processing_instruction_target_state(&mut self) -> Option<Token> {
         match self.next_char() {
-            Some(c) if matches!(c, '\t' | '\n' | '\u{000C}' | ' ') => {
+            Some('\t' | '\n' | '\u{000C}' | ' ') => {
                 // Ignore the character.
                 None
             }
@@ -3642,7 +3641,7 @@ impl HtmlTokenizer {
     /// §13.2.5.33 Attribute name state
     fn handle_attribute_name_state(&mut self) -> Option<Token> {
         let ch = self.next_char();
-        let result = match ch {
+        match ch {
             Some('\t') | Some('\n') | Some('\u{000C}') | Some(' ') => {
                 self.state = State::AfterAttributeName;
                 None
@@ -3683,8 +3682,7 @@ impl HtmlTokenizer {
                 self.state = State::AttributeName;
                 None
             }
-        };
-        result
+        }
     }
 
     /// §13.2.5.34 After attribute name state
@@ -4037,7 +4035,7 @@ mod tests {
         let tok = t.next_token();
         match tok {
             Some(Token::Doctype(d)) => {
-                assert_eq!(d.force_quirks, true);
+                assert!(d.force_quirks);
                 assert_eq!(d.name.as_deref(), Some("a"));
                 assert_eq!(d.public_id.as_deref(), Some("&"));
             }
@@ -4055,7 +4053,7 @@ mod tests {
         let tok = t.next_token();
         match tok {
             Some(Token::Doctype(d)) => {
-                assert_eq!(d.force_quirks, true);
+                assert!(d.force_quirks);
                 assert_eq!(d.name.as_deref(), Some("a"));
                 assert_eq!(d.public_id.as_deref(), Some("x&"));
             }

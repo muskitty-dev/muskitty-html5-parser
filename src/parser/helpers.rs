@@ -46,7 +46,10 @@ pub fn create_element_for_token(
     // element has a `selected` attribute. (The selectedness setting
     // algorithm may later adjust this.)
     if token.name == "option" {
-        let has_selected = token.attrs.iter().any(|(k, _)| k.eq_ignore_ascii_case("selected"));
+        let has_selected = token
+            .attrs
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("selected"));
         if has_selected {
             if let NodeKind::Element(ref mut e) = element.borrow_mut().kind {
                 e.selectedness = true;
@@ -644,7 +647,7 @@ pub fn close_list_item(parser: &mut HtmlTreeConstructor, targets: &[&str]) -> bo
             let current_is_target = parser
                 .open_elements
                 .last()
-                .and_then(|n| html_local_name(n))
+                .and_then(html_local_name)
                 .map(|l| l == target)
                 .unwrap_or(false);
             if !current_is_target {
@@ -1371,20 +1374,18 @@ pub fn adoption_agency(parser: &mut HtmlTreeConstructor, subject: &str) {
                         let _ = append_child(&parent, last_node.clone());
                     }
                     FosterLocation::Before { parent, before } => {
-                        let _ = muskitty_dom::insert_before(
-                            &parent,
-                            last_node.clone(),
-                            Some(&before),
-                        );
+                        let _ =
+                            muskitty_dom::insert_before(&parent, last_node.clone(), Some(&before));
                     }
                 }
             } else {
                 let target = {
                     let anc_ref = ancestor.borrow();
                     match &anc_ref.kind {
-                        NodeKind::Element(e) if e.local_name == "template" => {
-                            e.template_content.clone().unwrap_or_else(|| ancestor.clone())
-                        }
+                        NodeKind::Element(e) if e.local_name == "template" => e
+                            .template_content
+                            .clone()
+                            .unwrap_or_else(|| ancestor.clone()),
                         _ => ancestor.clone(),
                     }
                 };
@@ -1494,7 +1495,10 @@ fn run_any_other_end_tag(parser: &mut HtmlTreeConstructor, name: &str) {
 // option is inserted into (or removed from) a select.
 
 /// Deep-clone a node subtree (DOM §4.4 "clone a node" with subtree=true).
-fn deep_clone_node(node: &Rc<RefCell<Node>>, owner_document: &Rc<RefCell<Node>>) -> Rc<RefCell<Node>> {
+fn deep_clone_node(
+    node: &Rc<RefCell<Node>>,
+    owner_document: &Rc<RefCell<Node>>,
+) -> Rc<RefCell<Node>> {
     let n = node.borrow();
     let clone = match &n.kind {
         NodeKind::Element(e) => {
@@ -1508,26 +1512,26 @@ fn deep_clone_node(node: &Rc<RefCell<Node>>, owner_document: &Rc<RefCell<Node>>)
                 kind: NodeKind::Element(new_e),
             }))
         }
-        NodeKind::Text(t) => {
-            Rc::new(RefCell::new(Node {
-                node_type: NodeType::Text,
-                node_name: "#text".to_string(),
-                owner_document: Rc::downgrade(owner_document),
-                parent_node: Weak::new(),
-                children: Vec::new(),
-                kind: NodeKind::Text(TextData { data: t.data.clone() }),
-            }))
-        }
-        NodeKind::Comment(c) => {
-            Rc::new(RefCell::new(Node {
-                node_type: NodeType::Comment,
-                node_name: "#comment".to_string(),
-                owner_document: Rc::downgrade(owner_document),
-                parent_node: Weak::new(),
-                children: Vec::new(),
-                kind: NodeKind::Comment(CommentData { data: c.data.clone() }),
-            }))
-        }
+        NodeKind::Text(t) => Rc::new(RefCell::new(Node {
+            node_type: NodeType::Text,
+            node_name: "#text".to_string(),
+            owner_document: Rc::downgrade(owner_document),
+            parent_node: Weak::new(),
+            children: Vec::new(),
+            kind: NodeKind::Text(TextData {
+                data: t.data.clone(),
+            }),
+        })),
+        NodeKind::Comment(c) => Rc::new(RefCell::new(Node {
+            node_type: NodeType::Comment,
+            node_name: "#comment".to_string(),
+            owner_document: Rc::downgrade(owner_document),
+            parent_node: Weak::new(),
+            children: Vec::new(),
+            kind: NodeKind::Comment(CommentData {
+                data: c.data.clone(),
+            }),
+        })),
         _ => {
             // Fallback: shallow clone for unusual node types.
             Rc::new(RefCell::new(Node {
@@ -1536,7 +1540,9 @@ fn deep_clone_node(node: &Rc<RefCell<Node>>, owner_document: &Rc<RefCell<Node>>)
                 owner_document: Rc::downgrade(owner_document),
                 parent_node: Weak::new(),
                 children: Vec::new(),
-                kind: NodeKind::Text(TextData { data: String::new() }),
+                kind: NodeKind::Text(TextData {
+                    data: String::new(),
+                }),
             }))
         }
     };
@@ -1596,7 +1602,7 @@ fn get_list_of_options(select: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
     ) {
         let children: Vec<Rc<RefCell<Node>>> = {
             let n = node.borrow();
-            n.children.iter().cloned().collect()
+            n.children.to_vec()
         };
         for child in &children {
             let local = child
@@ -1622,11 +1628,7 @@ fn get_list_of_options(select: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
                         if Rc::ptr_eq(&w, select) {
                             break;
                         }
-                        let w_local = w
-                            .borrow()
-                            .kind
-                            .as_element()
-                            .map(|e| e.local_name.clone());
+                        let w_local = w.borrow().kind.as_element().map(|e| e.local_name.clone());
                         if w_local.as_deref() == Some("optgroup") {
                             has_ancestor_optgroup = true;
                             break;
@@ -1652,9 +1654,7 @@ fn get_list_of_options(select: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
 /// "Get a select's enabled selectedcontent" (§4.10.17): if select has
 /// `multiple`, return None; otherwise return the first `selectedcontent`
 /// descendant in tree order.
-fn get_select_enabled_selectedcontent(
-    select: &Rc<RefCell<Node>>,
-) -> Option<Rc<RefCell<Node>>> {
+fn get_select_enabled_selectedcontent(select: &Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
     let has_multiple = select
         .borrow()
         .kind
@@ -1668,7 +1668,7 @@ fn get_select_enabled_selectedcontent(
     fn find(node: &Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
         let children: Vec<Rc<RefCell<Node>>> = {
             let n = node.borrow();
-            n.children.iter().cloned().collect()
+            n.children.to_vec()
         };
         for child in &children {
             let is_sc = child
@@ -1793,7 +1793,7 @@ fn clone_option_into_selectedcontent(
     // Deep-clone each child of option and append to selectedcontent.
     let option_children: Vec<Rc<RefCell<Node>>> = {
         let o = option.borrow();
-        o.children.iter().cloned().collect()
+        o.children.to_vec()
     };
     for child in &option_children {
         let clone = deep_clone_node(child, owner_document);

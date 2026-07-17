@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use muskitty_dom::{Attribute, Namespace, Node, NodeKind, NodeType};
-use muskitty_html_parser::parse;
+use muskitty_html5_parser::parse;
 
 // ─── Input preprocessing (WHATWG §13.2.3.5) ──────────────────────────
 //
@@ -84,7 +84,7 @@ impl DatParser {
         // #data does NOT get trimmed: a trailing blank line in #data
         // represents an actual newline in the input (e.g. tests16.dat #195
         // has input "<!doctype html><table>\n" where the \n is significant).
-        while self.doc_lines.last().map_or(false, |l| l.is_empty()) {
+        while self.doc_lines.last().is_some_and(|l| l.is_empty()) {
             self.doc_lines.pop();
         }
         // #data: join lines with LF, drop trailing newline (the last line
@@ -205,7 +205,7 @@ fn serialize_node(node: &Rc<RefCell<Node>>, depth: usize, out: &mut String) {
 
     {
         let n = node.borrow();
-        children = n.children.iter().cloned().collect();
+        children = n.children.to_vec();
         template_content = match &n.kind {
             NodeKind::Element(e) if e.local_name == "template" => e.template_content.clone(),
             _ => None,
@@ -272,8 +272,7 @@ fn serialize_node(node: &Rc<RefCell<Node>>, depth: usize, out: &mut String) {
     if let Some(content) = &template_content {
         let content_indent = format!("| {}", "  ".repeat(depth + 1));
         out.push_str(&format!("{}content\n", content_indent));
-        let content_children: Vec<Rc<RefCell<Node>>> =
-            content.borrow().children.iter().cloned().collect();
+        let content_children: Vec<Rc<RefCell<Node>>> = content.borrow().children.to_vec();
         for child in &content_children {
             serialize_node(child, depth + 2, out);
         }
@@ -287,7 +286,7 @@ fn serialize_node(node: &Rc<RefCell<Node>>, depth: usize, out: &mut String) {
 /// Serialize a Document node into the html5lib #document format.
 fn serialize_document(doc: &Rc<RefCell<Node>>) -> String {
     let mut out = String::new();
-    let children: Vec<Rc<RefCell<Node>>> = doc.borrow().children.iter().cloned().collect();
+    let children: Vec<Rc<RefCell<Node>>> = doc.borrow().children.to_vec();
     for child in &children {
         serialize_node(child, 0, &mut out);
     }
@@ -531,7 +530,7 @@ fn html5lib_tree_construction_suite() {
     if !skip_reasons.is_empty() {
         eprintln!("\n── skip reasons ──");
         let mut reasons: Vec<(String, usize)> = skip_reasons.clone().into_iter().collect();
-        reasons.sort_by(|a, b| b.1.cmp(&a.1));
+        reasons.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
         for (reason, count) in &reasons {
             eprintln!("  {:>6}  {}", count, reason);
         }
@@ -577,7 +576,7 @@ fn html5lib_tree_construction_suite() {
         report.push_str("\n## Skip reasons\n\n");
         report.push_str("| Count | Reason |\n|------:|--------|\n");
         let mut reasons: Vec<(String, usize)> = skip_reasons.into_iter().collect();
-        reasons.sort_by(|a, b| b.1.cmp(&a.1));
+        reasons.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
         for (reason, count) in &reasons {
             report.push_str(&format!("| {} | {} |\n", count, reason));
         }

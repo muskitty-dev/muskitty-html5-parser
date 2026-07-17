@@ -401,8 +401,7 @@ fn handle_in_head(
                     .kind
                     .as_element()
                     .map(|e| {
-                        e.local_name == "template"
-                            && e.namespace == muskitty_dom::Namespace::Html
+                        e.local_name == "template" && e.namespace == muskitty_dom::Namespace::Html
                     })
                     .unwrap_or(false);
                 if is_html_template {
@@ -738,8 +737,7 @@ fn handle_in_body(
                     .unwrap_or("");
                 !matches!(
                     local,
-                    "dd"
-                        | "dt"
+                    "dd" | "dt"
                         | "li"
                         | "optgroup"
                         | "option"
@@ -1371,9 +1369,9 @@ fn handle_in_body_start_tag(
                 // Remove that specific <a> element (by pointer identity)
                 // from the AFE and the stack of open elements if the
                 // adoption agency algorithm didn't already remove it.
-                parser.active_formatting_elements.retain(|e| {
-                    !matches!(e, ActiveFormattingEntry::Element(el) if Rc::ptr_eq(el, &a_el))
-                });
+                parser.active_formatting_elements.retain(
+                    |e| !matches!(e, ActiveFormattingEntry::Element(el) if Rc::ptr_eq(el, &a_el)),
+                );
                 parser.open_elements.retain(|n| !Rc::ptr_eq(n, &a_el));
             }
         }
@@ -1641,10 +1639,7 @@ fn handle_in_body_end_tag(
                 .borrow()
                 .kind
                 .as_element()
-                .map(|e| {
-                    e.local_name == "template"
-                        && e.namespace == muskitty_dom::Namespace::Html
-                })
+                .map(|e| e.local_name == "template" && e.namespace == muskitty_dom::Namespace::Html)
                 .unwrap_or(false);
             if is_html_template {
                 break;
@@ -1694,9 +1689,7 @@ fn handle_in_body_end_tag(
                 n.borrow()
                     .kind
                     .as_element()
-                    .map(|e| {
-                        e.namespace == muskitty_dom::Namespace::Html && e.local_name == name
-                    })
+                    .map(|e| e.namespace == muskitty_dom::Namespace::Html && e.local_name == name)
                     .unwrap_or(false)
             })
             .unwrap_or(false);
@@ -1711,9 +1704,7 @@ fn handle_in_body_end_tag(
                 .borrow()
                 .kind
                 .as_element()
-                .map(|e| {
-                    e.namespace == muskitty_dom::Namespace::Html && e.local_name == name
-                })
+                .map(|e| e.namespace == muskitty_dom::Namespace::Html && e.local_name == name)
                 .unwrap_or(false);
             if is_target {
                 break;
@@ -2817,9 +2808,7 @@ fn handle_in_cell(
                     .borrow()
                     .kind
                     .as_element()
-                    .map(|e| {
-                        e.namespace == muskitty_dom::Namespace::Html && e.local_name == name
-                    })
+                    .map(|e| e.namespace == muskitty_dom::Namespace::Html && e.local_name == name)
                     .unwrap_or(false);
                 if is_target {
                     break;
@@ -3115,10 +3104,7 @@ fn template_in_stack(parser: &HtmlTreeConstructor) -> bool {
         n.borrow()
             .kind
             .as_element()
-            .map(|e| {
-                e.local_name == "template"
-                    && e.namespace == muskitty_dom::Namespace::Html
-            })
+            .map(|e| e.local_name == "template" && e.namespace == muskitty_dom::Namespace::Html)
             .unwrap_or(false)
     })
 }
@@ -3290,10 +3276,7 @@ fn handle_after_after_frameset(
         }
         // §13.2.6.4.21 (line 5278-5283): DOCTYPE, whitespace character,
         // and <html> start tag are all processed using the "in body" rules.
-        Token::Doctype(_)
-        | Token::Character(_)
-            if matches!(token, Token::Character(c) if is_whitespace(*c)) =>
-        {
+        Token::Doctype(_) | Token::Character(_) if matches!(token, Token::Character(c) if is_whitespace(*c)) => {
             handle_in_body(parser, token, tokenizer)
         }
         Token::Tag(tag) if tag.kind == TagKind::Start && tag.name == "html" => {
@@ -3340,11 +3323,9 @@ pub fn reset_insertion_mode(parser: &mut HtmlTreeConstructor) {
             // §13.2.6.4.2: No "select" case — InSelect mode has been removed
             // from the spec. <select> content is handled by InBody with
             // "select in scope" checks on specific start tags.
-            "td" | "th" => {
-                if !is_last {
-                    parser.insertion_mode = InsertionMode::InCell;
-                    return;
-                }
+            "td" | "th" if !is_last => {
+                parser.insertion_mode = InsertionMode::InCell;
+                return;
             }
             "tr" => {
                 parser.insertion_mode = InsertionMode::InRow;
@@ -3388,17 +3369,9 @@ pub fn reset_insertion_mode(parser: &mut HtmlTreeConstructor) {
                     return;
                 }
             }
-            "head" => {
-                // §13.2.6.2: "If node is a head element and last is
-                // false, then switch the insertion mode to 'in head'
-                // and return." When `is_last` (node is the first/bottom
-                // node), fall through to the loop-exit fallback which
-                // sets InBody (per §13.2.6.2 "If last is true, then
-                // switch the insertion mode to 'in body'").
-                if !is_last {
-                    parser.insertion_mode = InsertionMode::InHead;
-                    return;
-                }
+            "head" if !is_last => {
+                parser.insertion_mode = InsertionMode::InHead;
+                return;
             }
             "body" => {
                 parser.insertion_mode = InsertionMode::InBody;

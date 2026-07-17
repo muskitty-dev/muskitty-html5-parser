@@ -1,9 +1,5 @@
 # html5lib Tree Construction Gap Report
 
-> Updated: 2026-07-17 | Suite: html5lib/html5lib-tests `tree-construction/*.test`
-
-## Headline
-
 **Pass rate: 100.0% (1716/1716)** — 204 skipped — 0 panicked
 
 ## Per-fixture results
@@ -78,18 +74,3 @@
 |------:|--------|
 | 192 | document-fragment (fragment parsing not implemented) |
 | 12 | script-on (scripting flag not implemented) |
-
-## Notes
-
-- **0 failures** across all 68 fixture files
-- All 21 insertion modes implemented and passing
-- Foreign content (SVG/MathML) fully passing
-- Template mode fully passing
-- Adoption agency fully passing
-- Foster parenting fully passing
-
-## How to run
-
-```bash
-cargo test --test html5lib_tree_construction -- --nocapture
-```

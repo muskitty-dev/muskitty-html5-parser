@@ -10,7 +10,7 @@
 //! contains auto-created `<head>` and `<body>` per §13.2.6.4/§13.2.6.7).
 
 use muskitty_dom::NodeType;
-use muskitty_html_parser::parse;
+use muskitty_html5_parser::parse;
 
 #[test]
 fn parse_empty_string_produces_document_with_html() {

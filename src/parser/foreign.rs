@@ -124,10 +124,10 @@ pub fn dispatcher_routes_to_foreign(parser: &HtmlTreeConstructor, token: &Token)
         match token {
             // Start tag whose tag name is neither "mglyph" nor "malignmark"
             // → HTML content.
-            Token::Tag(t) if t.kind == TagKind::Start => {
-                if t.name != "mglyph" && t.name != "malignmark" {
-                    return false;
-                }
+            Token::Tag(t)
+                if t.kind == TagKind::Start && t.name != "mglyph" && t.name != "malignmark" =>
+            {
+                return false;
             }
             // Character token → HTML content.
             Token::Character(_) => return false,
