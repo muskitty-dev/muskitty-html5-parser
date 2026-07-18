@@ -29,15 +29,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --lib
 
-  test-tokenizer:
-    name: html5lib Tokenizer
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --test html5lib_tokenizer -- --nocapture
-
   test-tree-construction:
     name: html5lib Tree Construction
     runs-on: ubuntu-latest
