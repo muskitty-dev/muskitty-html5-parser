@@ -15,7 +15,7 @@ authors = ["MusCat / MusKitty Bit-Torch Community"]
 
 [dependencies]
 muskitty-dom = { git = "https://github.com/muskitty-dev/muskitty-dom.git", version = "0.1.0" }
-muskitty-html5-tokenizer = { path = "../muskitty-html5-tokenizer", version = "0.1.0" }
+muskitty-html5-tokenizer = { git = "https://github.com/muskitty-dev/muskitty-html5-tokenizer.git", version = "0.1.0" }
 
 [dev-dependencies]
 serde_json = "1"
