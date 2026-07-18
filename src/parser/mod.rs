@@ -26,7 +26,7 @@ use std::rc::Rc;
 use muskitty_dom::Node;
 
 use crate::error::ParseError;
-use crate::tokenizer::{Token, Tokenizer};
+use muskitty_html5_tokenizer::{Token, Tokenizer};
 
 /// An entry in the list of active formatting elements (§13.2.6.2).
 ///

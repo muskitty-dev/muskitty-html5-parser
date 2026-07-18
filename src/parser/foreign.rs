@@ -18,7 +18,7 @@ use muskitty_dom::{Attribute, Namespace, Node, NodeKind};
 use super::helpers;
 use super::HtmlTreeConstructor;
 use crate::error::ParseError;
-use crate::tokenizer::{TagKind, TagToken, Token, Tokenizer};
+use muskitty_html5_tokenizer::{TagKind, TagToken, Token, Tokenizer};
 
 /// XLink namespace URI.
 const XLINK_NS: &str = "http://www.w3.org/1999/xlink";

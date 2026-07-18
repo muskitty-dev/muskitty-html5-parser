@@ -16,7 +16,7 @@ use std::rc::Rc;
 use muskitty_dom::{append_child, remove_child, Attribute, Node, NodeKind};
 
 use crate::error::ParseError;
-use crate::tokenizer::{State, TagKind, Token, Tokenizer};
+use muskitty_html5_tokenizer::{State, TagKind, Token, Tokenizer};
 
 use super::helpers;
 use super::insertion_mode::InsertionMode;
@@ -805,7 +805,7 @@ fn handle_in_body(
                 parser
                     .errors
                     .push(ParseError::Generic("end tag br treated as start tag"));
-                let br_tag = crate::tokenizer::TagToken {
+                let br_tag = muskitty_html5_tokenizer::TagToken {
                     kind: TagKind::Start,
                     name: "br".to_string(),
                     attrs: vec![],
@@ -821,7 +821,7 @@ fn handle_in_body(
 
 fn handle_in_body_start_tag(
     parser: &mut HtmlTreeConstructor,
-    tag: &crate::tokenizer::TagToken,
+    tag: &muskitty_html5_tokenizer::TagToken,
     tokenizer: &mut dyn Tokenizer,
 ) -> Step {
     let name = tag.name.as_str();
@@ -832,7 +832,7 @@ fn handle_in_body_start_tag(
         parser
             .errors
             .push(ParseError::Generic("image start tag treated as img"));
-        let img_tag = crate::tokenizer::TagToken {
+        let img_tag = muskitty_html5_tokenizer::TagToken {
             kind: tag.kind,
             name: "img".to_string(),
             attrs: tag.attrs.clone(),
@@ -1616,7 +1616,7 @@ fn handle_in_body_start_tag(
 
 fn handle_in_body_end_tag(
     parser: &mut HtmlTreeConstructor,
-    tag: &crate::tokenizer::TagToken,
+    tag: &muskitty_html5_tokenizer::TagToken,
 ) -> Step {
     let name = tag.name.as_str();
 
@@ -1986,7 +1986,10 @@ fn handle_in_body_end_tag(
 
 /// Merge the attributes from `tag` onto `element`, skipping any whose name
 /// already exists on the element (per "adjust the attributes" §13.2.6.2).
-fn merge_attributes(element: &Rc<RefCell<muskitty_dom::Node>>, tag: &crate::tokenizer::TagToken) {
+fn merge_attributes(
+    element: &Rc<RefCell<muskitty_dom::Node>>,
+    tag: &muskitty_html5_tokenizer::TagToken,
+) {
     let mut e = element.borrow_mut();
     if let NodeKind::Element(ref mut data) = e.kind {
         for (name, value) in &tag.attrs {

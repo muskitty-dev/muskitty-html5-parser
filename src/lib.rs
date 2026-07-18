@@ -16,7 +16,6 @@
 
 pub mod error;
 pub mod parser;
-pub mod tokenizer;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -24,7 +23,7 @@ use std::rc::Rc;
 use muskitty_dom::Node;
 
 use crate::parser::HtmlTreeConstructor;
-use crate::tokenizer::{HtmlTokenizer, Token, Tokenizer};
+use muskitty_html5_tokenizer::{HtmlTokenizer, Token, Tokenizer};
 
 /// Parse an HTML string into a Document node.
 ///

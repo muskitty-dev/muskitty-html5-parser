@@ -14,7 +14,7 @@ use muskitty_dom::{
 use super::ActiveFormattingEntry;
 use super::HtmlTreeConstructor;
 use crate::error::ParseError;
-use crate::tokenizer::TagToken;
+use muskitty_html5_tokenizer::TagToken;
 
 /// Create an Element node for a start tag token.
 ///
