@@ -19,3 +19,7 @@ muskitty-html5-tokenizer = "0.1.2"
 
 [dev-dependencies]
 serde_json = "1"
+
+# 防止被父 workspace (D:\Muskitty\Cargo.toml) 误吸入。
+# parser 作为独立 git 仓库剥离，有自己的 workspace 根。
+[workspace]
