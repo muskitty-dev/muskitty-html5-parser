@@ -1555,10 +1555,7 @@ fn handle_in_body_start_tag(
         if let Some(parent) = parser.open_elements.first() {
             // Detach body from its parent (html).
             let body_ptr = Rc::as_ptr(&body);
-            parent
-                .borrow_mut()
-                .children
-                .retain(|c| Rc::as_ptr(c) != body_ptr);
+            muskitty_dom::retain_children(parent, |c| Rc::as_ptr(c) != body_ptr);
         }
         // Insert the frameset element and switch to InFrameset.
         helpers::insert_element(parser, tag);

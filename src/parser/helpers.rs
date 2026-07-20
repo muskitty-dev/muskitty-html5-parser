@@ -7,9 +7,7 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
-use muskitty_dom::{
-    append_child, Attribute, CommentData, ElementData, Node, NodeKind, NodeType, TextData,
-};
+use muskitty_dom::{append_child, Attribute, Node, NodeKind, NodeType};
 
 use super::ActiveFormattingEntry;
 use super::HtmlTreeConstructor;
@@ -268,14 +266,14 @@ pub fn insert_character(parser: &HtmlTreeConstructor, c: char) {
             FosterLocation::Before { parent, before } => {
                 // Find the previous sibling of the table node.
                 let prev_sibling = {
-                    let children = parent.borrow();
-                    let idx = children
-                        .children
+                    let parent_node = parent.borrow();
+                    let idx = parent_node
+                        .child_nodes()
                         .iter()
                         .position(|n| Rc::ptr_eq(n, &before));
                     idx.and_then(|i| {
                         if i > 0 {
-                            Some(children.children[i - 1].clone())
+                            Some(parent_node.child_nodes()[i - 1].clone())
                         } else {
                             None
                         }
@@ -1403,7 +1401,7 @@ pub fn adoption_agency(parser: &mut HtmlTreeConstructor, subject: &str) {
 
         // 4.11: Move all children of furthest block to new_formatting.
         let furthest_block = parser.open_elements[furthest_block_index].clone();
-        let children: Vec<Rc<RefCell<Node>>> = furthest_block.borrow().children.clone();
+        let children: Vec<Rc<RefCell<Node>>> = furthest_block.borrow().child_nodes().to_vec();
         for child in &children {
             let _ = muskitty_dom::remove_child(&furthest_block, child);
             let _ = append_child(&new_formatting, child.clone());
@@ -1502,55 +1500,20 @@ fn deep_clone_node(
     let n = node.borrow();
     let clone = match &n.kind {
         NodeKind::Element(e) => {
-            let new_e = ElementData::new_html(&e.local_name, e.attributes.clone());
-            Rc::new(RefCell::new(Node {
-                node_type: NodeType::Element,
-                node_name: e.local_name.to_ascii_uppercase(),
-                owner_document: Rc::downgrade(owner_document),
-                parent_node: Weak::new(),
-                children: Vec::new(),
-                kind: NodeKind::Element(new_e),
-            }))
+            Node::new_element_html(&e.local_name, e.attributes.clone(), owner_document)
         }
-        NodeKind::Text(t) => Rc::new(RefCell::new(Node {
-            node_type: NodeType::Text,
-            node_name: "#text".to_string(),
-            owner_document: Rc::downgrade(owner_document),
-            parent_node: Weak::new(),
-            children: Vec::new(),
-            kind: NodeKind::Text(TextData {
-                data: t.data.clone(),
-            }),
-        })),
-        NodeKind::Comment(c) => Rc::new(RefCell::new(Node {
-            node_type: NodeType::Comment,
-            node_name: "#comment".to_string(),
-            owner_document: Rc::downgrade(owner_document),
-            parent_node: Weak::new(),
-            children: Vec::new(),
-            kind: NodeKind::Comment(CommentData {
-                data: c.data.clone(),
-            }),
-        })),
+        NodeKind::Text(t) => Node::new_text(&t.data, owner_document),
+        NodeKind::Comment(c) => Node::new_comment(&c.data, owner_document),
         _ => {
             // Fallback: shallow clone for unusual node types.
-            Rc::new(RefCell::new(Node {
-                node_type: NodeType::Text,
-                node_name: "#text".to_string(),
-                owner_document: Rc::downgrade(owner_document),
-                parent_node: Weak::new(),
-                children: Vec::new(),
-                kind: NodeKind::Text(TextData {
-                    data: String::new(),
-                }),
-            }))
+            Node::new_text("", owner_document)
         }
     };
     // Clone children recursively.
-    for child in &n.children {
+    let child_nodes: Vec<Rc<RefCell<Node>>> = n.child_nodes().to_vec();
+    for child in &child_nodes {
         let child_clone = deep_clone_node(child, owner_document);
-        child_clone.borrow_mut().parent_node = Rc::downgrade(&clone);
-        clone.borrow_mut().children.push(child_clone);
+        muskitty_dom::push_child_raw(&clone, child_clone);
     }
     clone
 }
@@ -1602,7 +1565,7 @@ fn get_list_of_options(select: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
     ) {
         let children: Vec<Rc<RefCell<Node>>> = {
             let n = node.borrow();
-            n.children.to_vec()
+            n.child_nodes().to_vec()
         };
         for child in &children {
             let local = child
@@ -1668,7 +1631,7 @@ fn get_select_enabled_selectedcontent(select: &Rc<RefCell<Node>>) -> Option<Rc<R
     fn find(node: &Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
         let children: Vec<Rc<RefCell<Node>>> = {
             let n = node.borrow();
-            n.children.to_vec()
+            n.child_nodes().to_vec()
         };
         for child in &children {
             let is_sc = child
@@ -1783,22 +1746,18 @@ fn clone_option_into_selectedcontent(
     owner_document: &Rc<RefCell<Node>>,
 ) {
     // Clear existing children of selectedcontent ("replace all").
-    let old_children: Vec<Rc<RefCell<Node>>> = {
-        let mut sc = selectedcontent.borrow_mut();
-        sc.children.drain(..).collect()
-    };
+    let old_children = muskitty_dom::drain_children(selectedcontent);
     for c in &old_children {
         c.borrow_mut().parent_node = Weak::new();
     }
     // Deep-clone each child of option and append to selectedcontent.
     let option_children: Vec<Rc<RefCell<Node>>> = {
         let o = option.borrow();
-        o.children.to_vec()
+        o.child_nodes().to_vec()
     };
     for child in &option_children {
         let clone = deep_clone_node(child, owner_document);
-        clone.borrow_mut().parent_node = Rc::downgrade(selectedcontent);
-        selectedcontent.borrow_mut().children.push(clone);
+        muskitty_dom::push_child_raw(selectedcontent, clone);
     }
 }
 

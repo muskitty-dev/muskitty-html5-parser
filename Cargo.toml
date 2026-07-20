@@ -14,8 +14,8 @@ categories = ["parser-implementations", "web-programming"]
 authors = ["MusCat / MusKitty Bit-Torch Community"]
 
 [dependencies]
-muskitty-dom = "0.1.0"
-muskitty-html5-tokenizer = "0.1.2"
+muskitty-dom = { version = "0.1.0", path = "../muskitty-dom" }
+muskitty-html5-tokenizer = { version = "0.1.2", path = "../muskitty-html5-tokenizer" }
 
 [dev-dependencies]
 serde_json = "1"

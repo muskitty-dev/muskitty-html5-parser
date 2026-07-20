@@ -29,7 +29,7 @@ fn parse_empty_string_produces_document_with_html() {
 #[test]
 fn parse_doctype_produces_document_type_then_html() {
     let doc = parse("<!DOCTYPE html>");
-    let children = doc.borrow().children.clone();
+    let children = doc.borrow().child_nodes().to_vec();
     // DocumentType first, then <html> (auto-created on EOF).
     assert_eq!(children.len(), 2);
     assert_eq!(children[0].borrow().node_type, NodeType::DocumentType);
@@ -43,7 +43,7 @@ fn parse_minimal_html_produces_html_element() {
     // Document per §13.2.6.3.
     let has_html = doc
         .borrow()
-        .children
+        .child_nodes()
         .iter()
         .any(|c| c.borrow().node_name == "HTML");
     assert!(has_html, "Document should have an <HTML> child");

@@ -24,7 +24,7 @@ fn find_element_by_name(root: &Rc<RefCell<Node>>, name: &str) -> Option<Rc<RefCe
 /// Collect the node_names of all direct children of a node (uppercase).
 fn child_names(node: &Rc<RefCell<Node>>) -> Vec<String> {
     node.borrow()
-        .children
+        .child_nodes()
         .iter()
         .map(|c| c.borrow().node_name.clone())
         .collect()
@@ -222,7 +222,7 @@ fn full_document_structure() {
     let head = find_element_by_name(&doc, "HEAD").unwrap();
     let title = head
         .borrow()
-        .children
+        .child_nodes()
         .iter()
         .find(|c| c.borrow().node_name == "TITLE")
         .expect("missing <TITLE> under <HEAD>")
@@ -333,7 +333,7 @@ fn unordered_list_with_items() {
     assert_eq!(child_names(&ul), vec!["LI", "LI"]);
     let items: Vec<String> = ul
         .borrow()
-        .children
+        .child_nodes()
         .iter()
         .map(|c| c.borrow().text_content().unwrap_or_default())
         .collect();
@@ -365,7 +365,7 @@ fn implicit_p_close_on_next_p() {
     assert_eq!(child_names(&body), vec!["P", "P"]);
     let texts: Vec<String> = body
         .borrow()
-        .children
+        .child_nodes()
         .iter()
         .map(|c| c.borrow().text_content().unwrap_or_default())
         .collect();
@@ -678,7 +678,7 @@ fn table_with_multiple_rows() {
     // Should have two <TR> children
     let tr_count = tbody
         .borrow()
-        .children
+        .child_nodes()
         .iter()
         .filter(|c| c.borrow().node_name == "TR")
         .count();
@@ -694,7 +694,7 @@ fn table_with_multiple_cells_in_row() {
     let tr = find_first_child_element(&tbody, "TR").expect("missing <TR>");
     let td_count = tr
         .borrow()
-        .children
+        .child_nodes()
         .iter()
         .filter(|c| c.borrow().node_name == "TD")
         .count();
@@ -736,7 +736,7 @@ fn nested_tables() {
 fn find_first_child_element(parent: &Rc<RefCell<Node>>, name: &str) -> Option<Rc<RefCell<Node>>> {
     parent
         .borrow()
-        .children
+        .child_nodes()
         .iter()
         .find(|c| c.borrow().node_name == name)
         .cloned()
@@ -750,7 +750,7 @@ fn select_with_options() {
     let select = find_element_by_name(&doc, "SELECT").expect("missing <SELECT>");
     let option_count = select
         .borrow()
-        .children
+        .child_nodes()
         .iter()
         .filter(|c| c.borrow().node_name == "OPTION")
         .count();
@@ -825,7 +825,7 @@ fn frameset_replaces_body() {
     let frameset = find_element_by_name(&doc, "FRAMESET").expect("missing <FRAMESET>");
     let frame_count = frameset
         .borrow()
-        .children
+        .child_nodes()
         .iter()
         .filter(|c| c.borrow().node_name == "FRAME")
         .count();

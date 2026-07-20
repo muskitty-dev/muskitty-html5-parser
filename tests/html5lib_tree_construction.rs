@@ -205,7 +205,7 @@ fn serialize_node(node: &Rc<RefCell<Node>>, depth: usize, out: &mut String) {
 
     {
         let n = node.borrow();
-        children = n.children.to_vec();
+        children = n.child_nodes().to_vec();
         template_content = match &n.kind {
             NodeKind::Element(e) if e.local_name == "template" => e.template_content.clone(),
             _ => None,
@@ -272,7 +272,7 @@ fn serialize_node(node: &Rc<RefCell<Node>>, depth: usize, out: &mut String) {
     if let Some(content) = &template_content {
         let content_indent = format!("| {}", "  ".repeat(depth + 1));
         out.push_str(&format!("{}content\n", content_indent));
-        let content_children: Vec<Rc<RefCell<Node>>> = content.borrow().children.to_vec();
+        let content_children: Vec<Rc<RefCell<Node>>> = content.borrow().child_nodes().to_vec();
         for child in &content_children {
             serialize_node(child, depth + 2, out);
         }
@@ -286,7 +286,7 @@ fn serialize_node(node: &Rc<RefCell<Node>>, depth: usize, out: &mut String) {
 /// Serialize a Document node into the html5lib #document format.
 fn serialize_document(doc: &Rc<RefCell<Node>>) -> String {
     let mut out = String::new();
-    let children: Vec<Rc<RefCell<Node>>> = doc.borrow().children.to_vec();
+    let children: Vec<Rc<RefCell<Node>>> = doc.borrow().child_nodes().to_vec();
     for child in &children {
         serialize_node(child, 0, &mut out);
     }
