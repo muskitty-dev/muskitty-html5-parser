@@ -1,5 +1,7 @@
 # muskitty-html5-parser
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 [![crates.io](https://img.shields.io/crates/v/muskitty-html5-parser.svg)](https://crates.io/crates/muskitty-html5-parser)
 [![Documentation](https://docs.rs/muskitty-html5-parser/badge.svg)](https://docs.rs/muskitty-html5-parser)
 [![License](https://img.shields.io/crates/l/muskitty-html5-parser.svg)](https://github.com/muskitty-dev/muskitty-html5-parser/blob/main/LICENSE)
