@@ -199,6 +199,24 @@ fn foster_parent_location(parser: &HtmlTreeConstructor) -> FosterLocation {
     FosterLocation::Append(parser.current_node())
 }
 
+/// 将元素 push 到 open elements 栈，执行深度限制检查。
+///
+/// 超过 `max_open_elements` 时跳过 push 并记录 `ParseError::DomDepthExceeded`，
+/// 解析继续（参考 WHATWG §13.2.6 错误恢复语义：parser 不应因资源限制而崩溃）。
+///
+/// 注意：跳过 push 意味着后续的 end tag 可能匹配错误节点，但这是降级可接受代价
+/// ——浏览器在超深嵌套时也会进入类似的退化模式。
+pub fn push_open_element(parser: &mut HtmlTreeConstructor, node: Rc<RefCell<Node>>) {
+    if parser.open_elements.len() >= parser.max_open_elements {
+        parser.errors.push(ParseError::DomDepthExceeded {
+            depth: parser.open_elements.len(),
+            limit: parser.max_open_elements,
+        });
+        return;
+    }
+    parser.open_elements.push(node);
+}
+
 /// Insert a node at the appropriate place for inserting a node (§13.2.6.2).
 ///
 /// When foster parenting is active (§13.2.6.3), the node is inserted at
@@ -232,7 +250,7 @@ pub fn insert_node(parser: &HtmlTreeConstructor, node: &Rc<RefCell<Node>>) {
 pub fn insert_element(parser: &mut HtmlTreeConstructor, token: &TagToken) {
     let element = create_element_for_token(parser, token);
     insert_node(parser, &element);
-    parser.open_elements.push(element.clone());
+    push_open_element(parser, element.clone());
     // WHATWG §4.10.10: option HTML element insertion steps — run update
     // an option's nearest ancestor select, which fires the selectedness
     // setting algorithm on the ancestor select (if any).
@@ -949,7 +967,7 @@ pub fn reconstruct_active_formatting_elements(parser: &mut HtmlTreeConstructor) 
         // formatting elements are foster-parented correctly when the
         // current node is a table/tbody/tr.
         insert_node(parser, &new_element);
-        parser.open_elements.push(new_element.clone());
+        push_open_element(parser, new_element.clone());
         // Replace the entry with the new element.
         parser.active_formatting_elements[index] = ActiveFormattingEntry::Element(new_element);
         index += 1;

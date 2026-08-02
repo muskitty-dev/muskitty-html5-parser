@@ -92,6 +92,11 @@ pub struct HtmlTreeConstructor {
     /// InBody (§13.2.6.4.7: in quirks mode, `<p>` is not closed before a
     /// `<table>`).
     pub quirks_mode: bool,
+    /// open elements 栈深度上限。超过时 push 被跳过并记录
+    /// `ParseError::DomDepthExceeded`，解析继续（参考 WHATWG §13.2.6
+    /// 错误恢复语义）。由 `parse_with_limits` 设置；默认为
+    /// [`crate::MAX_OPEN_ELEMENTS`]。
+    pub max_open_elements: usize,
 }
 
 impl HtmlTreeConstructor {
@@ -116,6 +121,7 @@ impl HtmlTreeConstructor {
             errors: Vec::new(),
             skip_next_lf: false,
             quirks_mode: false,
+            max_open_elements: crate::MAX_OPEN_ELEMENTS,
         }
     }
 

@@ -103,7 +103,7 @@ fn is_whitespace(c: char) -> bool {
 fn create_and_push(parser: &mut HtmlTreeConstructor, name: &str) {
     let element = Node::new_element_html(name, vec![], &parser.document);
     helpers::insert_node(parser, &element);
-    parser.open_elements.push(element);
+    helpers::push_open_element(parser, element);
 }
 
 // ── Initial insertion mode (§13.2.6.4.1) ──────────────────────
@@ -191,7 +191,7 @@ fn handle_before_html(parser: &mut HtmlTreeConstructor, token: &Token) -> Step {
         Token::Tag(tag) if tag.kind == TagKind::Start && tag.name == "html" => {
             let element = helpers::create_element_for_token(parser, tag);
             let _ = append_child(&parser.document, element.clone());
-            parser.open_elements.push(element);
+            helpers::push_open_element(parser, element);
             parser.insertion_mode = InsertionMode::BeforeHead;
             Step::Done
         }
@@ -244,7 +244,7 @@ fn handle_before_head(
             let element = helpers::create_element_for_token(parser, tag);
             let current = parser.current_node();
             let _ = append_child(&current, element.clone());
-            parser.open_elements.push(element.clone());
+            helpers::push_open_element(parser, element.clone());
             parser.head_element = Some(element);
             parser.insertion_mode = InsertionMode::InHead;
             Step::Done
@@ -493,7 +493,7 @@ fn handle_after_head(
             let element = helpers::create_element_for_token(parser, tag);
             let current = parser.current_node();
             let _ = append_child(&current, element.clone());
-            parser.open_elements.push(element);
+            helpers::push_open_element(parser, element);
             parser.frameset_ok = false;
             parser.insertion_mode = InsertionMode::InBody;
             Step::Done
@@ -502,7 +502,7 @@ fn handle_after_head(
             let element = helpers::create_element_for_token(parser, tag);
             let current = parser.current_node();
             let _ = append_child(&current, element.clone());
-            parser.open_elements.push(element);
+            helpers::push_open_element(parser, element);
             parser.insertion_mode = InsertionMode::InFrameset;
             Step::Done
         }
@@ -531,7 +531,7 @@ fn handle_after_head(
                 .push(ParseError::UnexpectedStartTag(tag.name.clone()));
             if let Some(head) = parser.head_element.clone() {
                 let head_ptr = Rc::as_ptr(&head);
-                parser.open_elements.push(head);
+                helpers::push_open_element(parser, head);
                 // Process the token using InHead rules directly (don't
                 // change insertion mode — InHead handler may set it itself,
                 // e.g. to Text for <title>/<style>).
@@ -1088,7 +1088,7 @@ fn handle_in_body_start_tag(
         }
         let element = helpers::create_element_for_token(parser, tag);
         helpers::insert_node(parser, &element);
-        parser.open_elements.push(element.clone());
+        helpers::push_open_element(parser, element.clone());
         parser.form_element = Some(element);
         return Step::Done;
     }
@@ -1388,7 +1388,7 @@ fn handle_in_body_start_tag(
         helpers::reconstruct_active_formatting_elements(parser);
         let element = helpers::create_element_for_token(parser, tag);
         helpers::insert_node(parser, &element);
-        parser.open_elements.push(element.clone());
+        helpers::push_open_element(parser, element.clone());
         helpers::push_formatting_element(parser, element);
         return Step::Done;
     }
@@ -1657,7 +1657,7 @@ fn handle_in_body_end_tag(
                 .push(ParseError::Generic("end tag p without open p"));
             let p = muskitty_dom::Node::new_element_html("p", vec![], &parser.document);
             helpers::insert_node(parser, &p);
-            parser.open_elements.push(p);
+            helpers::push_open_element(parser, p);
         }
         helpers::close_p_element(parser);
         return Step::Done;
@@ -2336,7 +2336,7 @@ fn handle_in_table(
                     } else {
                         let element = helpers::create_element_for_token(parser, tag);
                         helpers::insert_node(parser, &element);
-                        parser.open_elements.push(element.clone());
+                        helpers::push_open_element(parser, element.clone());
                         parser.form_element = Some(element);
                         parser.open_elements.pop();
                         Step::Done

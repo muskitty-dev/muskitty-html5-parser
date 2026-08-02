@@ -406,7 +406,7 @@ pub fn insert_foreign_element(
     if !only_add_to_element_stack {
         helpers::insert_node(parser, &element);
     }
-    parser.open_elements.push(element.clone());
+    helpers::push_open_element(parser, element.clone());
     element
 }
 

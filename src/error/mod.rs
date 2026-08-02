@@ -21,4 +21,14 @@ pub enum ParseError {
     UnexpectedEndTag(String),
     /// Generic parse error with a static description.
     Generic(&'static str),
+    /// 输入字节数超过 `MAX_INPUT_BYTES`。
+    /// 触发后解析立即停止，返回部分结果（仅含截止点已构建的 DOM）。
+    /// 参考 Chromium `kMaxHTMLDocumentSize`、WebKit 的输入大小保护策略。
+    InputTooLarge { actual: usize, limit: usize },
+    /// open elements 栈深度超过 `MAX_OPEN_ELEMENTS`。
+    /// 触发后当前元素的 push 被跳过，但解析继续（参考 WHATWG §13.2.6
+    /// 错误恢复语义：parser 不应因资源限制而崩溃）。跳过 push 意味着
+    /// 后续 end tag 可能匹配错误节点，但这是降级可接受代价。
+    /// 参考 Chromium `kMaxHTMLParserDOMDepth = 512`、WebKit `maxDOMTreeDepth = 500`。
+    DomDepthExceeded { depth: usize, limit: usize },
 }
