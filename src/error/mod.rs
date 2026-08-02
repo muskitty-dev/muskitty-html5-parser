@@ -31,4 +31,8 @@ pub enum ParseError {
     /// 后续 end tag 可能匹配错误节点，但这是降级可接受代价。
     /// 参考 Chromium `kMaxHTMLParserDOMDepth = 512`、WebKit `maxDOMTreeDepth = 500`。
     DomDepthExceeded { depth: usize, limit: usize },
+    /// 同一 token 的 reprocess 次数超过 `MAX_REPROCESS_COUNT`。
+    /// 触发后停止处理当前 token（等价于 WHATWG §13.2.6 "stop parsing"
+    /// 的降级恢复语义），解析继续处理后续 token，而不是 panic。
+    ReprocessLimitExceeded { limit: u32 },
 }

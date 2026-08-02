@@ -28,6 +28,15 @@ use muskitty_dom::Node;
 use crate::error::ParseError;
 use muskitty_html5_tokenizer::{Token, Tokenizer};
 
+/// 同一 token 最大 reprocess 次数。
+///
+/// WHATWG §13.2.6 中 reprocess 是状态机正常机制：每次 reprocess 都会
+/// 切换 insertion mode 后重新处理同一 token。若某个畸形输入导致
+/// insertion mode 无法收敛（例如 Text mode 中无 original mode 的 EOF），
+/// 连续 reprocess 会形成死循环。超过此上限后停止处理当前 token
+/// （等价于规范允许的 "stop parsing" 降级），避免无限循环/panic。
+pub const MAX_REPROCESS_COUNT: u32 = 50;
+
 /// An entry in the list of active formatting elements (§13.2.6.2).
 ///
 /// The list holds either a reference to an element on the open elements
@@ -179,11 +188,13 @@ impl HtmlTreeConstructor {
                 dispatch::Step::Done => return,
                 dispatch::Step::Reprocess => {
                     reprocess_count += 1;
-                    if reprocess_count > 50 {
-                        panic!(
-                            "reprocess loop on token {:?}, insertion_mode {:?}",
-                            token, self.insertion_mode
-                        );
+                    if reprocess_count > MAX_REPROCESS_COUNT {
+                        // §13.2.6 错误恢复语义：不因畸形输入崩溃，记录
+                        // 错误并停止处理当前 token，继续后续 token。
+                        self.errors.push(ParseError::ReprocessLimitExceeded {
+                            limit: MAX_REPROCESS_COUNT,
+                        });
+                        return;
                     }
                     continue;
                 }
@@ -200,5 +211,49 @@ impl HtmlTreeConstructor {
         while !self.open_elements.is_empty() {
             helpers::pop_open_element(self);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ParseError;
+    use muskitty_dom::Node;
+    use muskitty_html5_tokenizer::HtmlTokenizer;
+
+    #[test]
+    fn reprocess_limit_records_error_instead_of_panicking() {
+        // Text mode 中 EOF 且无 original mode：每次 reprocess 后仍停留在
+        // Text mode，触发 reprocess 死循环 → 应记录 ReprocessLimitExceeded
+        // 而非 panic（回归 H-3）。
+        let document = Node::new_document();
+        let mut constructor = HtmlTreeConstructor::new(document);
+        constructor.insertion_mode = InsertionMode::Text;
+
+        let mut tokenizer = HtmlTokenizer::new("");
+        constructor.run(&Token::EOF, &mut tokenizer);
+
+        assert!(
+            constructor
+                .errors
+                .iter()
+                .any(|e| matches!(e, ParseError::ReprocessLimitExceeded { .. })),
+            "expected ReprocessLimitExceeded error, got {:?}",
+            constructor.errors
+        );
+    }
+
+    #[test]
+    fn normal_input_never_triggers_reprocess_limit() {
+        let document = Node::new_document();
+        let mut constructor = HtmlTreeConstructor::new(document);
+        let mut tokenizer = HtmlTokenizer::new("");
+        // 正常 token 流（Character + EOF）应直接消费完毕
+        constructor.run(&Token::Character('a'), &mut tokenizer);
+        constructor.run(&Token::EOF, &mut tokenizer);
+        assert!(!constructor
+            .errors
+            .iter()
+            .any(|e| matches!(e, ParseError::ReprocessLimitExceeded { .. })));
     }
 }
