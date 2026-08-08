@@ -1,6 +1,6 @@
 [package]
 name = "muskitty-html5-parser"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.70"
 license = "Apache-2.0"
@@ -14,7 +14,7 @@ categories = ["parser-implementations", "web-programming"]
 authors = ["MusCat / MusKitty Bit-Torch Community"]
 
 [dependencies]
-muskitty-dom = { version = "0.1.0", path = "../muskitty-dom" }
+muskitty-dom = { version = "0.2.0", path = "../muskitty-dom" }
 muskitty-html5-tokenizer = { version = "0.1.2", path = "../muskitty-html5-tokenizer" }
 
 [dev-dependencies]
