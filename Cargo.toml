@@ -20,6 +20,22 @@ muskitty-html5-tokenizer = { version = "0.1.2", path = "../muskitty-html5-tokeni
 [dev-dependencies]
 serde_json = "1"
 
-# 防止被父 workspace (D:\Muskitty\Cargo.toml) 误吸入。
+# ── Benchmark harness ──────────────────────────────────────────────────
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# ── Heap allocation profiling (standalone example) ──────────────────────
+dhat = "0.3"
+
+# ── Peer parsers for comparative benchmarking ──────────────────────────
+html5ever = "0.39"
+markup5ever_rcdom = "0.39.0"
+tl = "0.7"
+lol_html = "3"
+
+[[bench]]
+name = "parser_bench"
+harness = false
+
+# 防止被父 workspace (D:\MusKitty\Cargo.toml) 误吸入。
 # parser 作为独立 git 仓库剥离，有自己的 workspace 根。
 [workspace]

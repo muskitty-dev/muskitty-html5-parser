@@ -1,2 +1,10 @@
 # Rust build artifacts
 target/
+
+# Benchmark data (fetched from Wikipedia via scripts/fetch_bench_data.sh)
+# .bak files are auto-generated backups by the fetch script
+benches/data/*.html
+benches/data/*.bak
+
+# Library crates don't commit Cargo.lock
+Cargo.lock
