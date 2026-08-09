@@ -13,7 +13,7 @@
 //!   algorithms from §13.2.6.2.
 //! - [`insertion_mode`] defines the 23 insertion modes from §13.2.6.1.
 
-mod dispatch;
+pub(crate) mod dispatch;
 mod foreign;
 mod helpers;
 mod insertion_mode;
@@ -106,6 +106,13 @@ pub struct HtmlTreeConstructor {
     /// 错误恢复语义）。由 `parse_with_limits` 设置；默认为
     /// [`crate::MAX_OPEN_ELEMENTS`]。
     pub max_open_elements: usize,
+    /// The recreated context element (§13.4.2 step 6). Set only during
+    /// fragment parsing; used by "reset the insertion mode appropriately"
+    /// (§13.2.6.4.1) to substitute the stack root's local name.
+    pub fragment_context: Option<Rc<RefCell<Node>>>,
+    /// The DocumentFragment being built (§13.4.2). Set only during fragment
+    /// parsing; the parsed content is unwrapped into it at the end.
+    pub fragment_root: Option<Rc<RefCell<Node>>>,
 }
 
 impl HtmlTreeConstructor {
@@ -131,6 +138,8 @@ impl HtmlTreeConstructor {
             skip_next_lf: false,
             quirks_mode: false,
             max_open_elements: crate::MAX_OPEN_ELEMENTS,
+            fragment_context: None,
+            fragment_root: None,
         }
     }
 

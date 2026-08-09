@@ -1724,8 +1724,10 @@ fn handle_in_body_end_tag(
         return Step::Done;
     }
 
-    // </html>: if body not in scope, parse error, ignore. Else: switch to
-    // AfterBody, reprocess.
+    // </html>: if body not in scope, parse error, ignore. Else: process the
+    // token as if it were an end tag body (switch to AfterBody), then
+    // reprocess (§13.2.6.4.7; html5lib `endTagHtml` delegates to `endTagBody`
+    // and re-returns the token).
     if name == "html" {
         if !helpers::has_element_in_scope(parser, "body") {
             parser
@@ -2057,13 +2059,22 @@ fn handle_after_body(
             Step::Done
         }
         Token::Tag(tag) if tag.kind == TagKind::End && tag.name == "html" => {
-            // Process the token as if it were an end tag body token, then
-            // switch to "after after body". Since `</body>` just switches
-            // mode (above), we replicate that here.
             if !helpers::has_element_in_scope(parser, "body") {
                 parser
                     .errors
                     .push(ParseError::Generic("end tag html without body in scope"));
+                return Step::Done;
+            }
+            if parser.fragment_context.is_some() {
+                // §13.2.6.4.19 fragment case (html5lib `endTagHtml`: `if
+                // self.parser.innerHTML: parseError(...) else: switch to
+                // afterAfterBody`). The fragment parser stays in "after body"
+                // so a subsequent comment is placed on the first element in
+                // the stack (the root <html>) and survives the unwrap
+                // (tests_innerHTML_1.dat #79).
+                parser.errors.push(ParseError::Generic(
+                    "unexpected end tag html after body in fragment",
+                ));
                 return Step::Done;
             }
             parser.insertion_mode = InsertionMode::AfterAfterBody;
@@ -3313,7 +3324,20 @@ pub fn reset_insertion_mode(parser: &mut HtmlTreeConstructor) {
     // Iterating forward would incorrectly match <head> before <body>.
     for (i, node) in parser.open_elements.iter().enumerate().rev() {
         let is_last = i == 0;
-        let local = node
+        // §13.2.6.4.1: in the fragment case, once the walk reaches the first
+        // node in the stack (the fragment root `<html>`), the examined node
+        // is swapped for the fragment context element. The swap happens after
+        // `last` is set to true, so `td`/`th`/`head` (which require `!last`)
+        // still fall through to InBody, matching the spec.
+        let effective: Rc<RefCell<Node>> = if is_last {
+            match &parser.fragment_context {
+                Some(ctx) => ctx.clone(),
+                None => node.clone(),
+            }
+        } else {
+            node.clone()
+        };
+        let local = effective
             .borrow()
             .kind
             .as_element()
@@ -3353,7 +3377,7 @@ pub fn reset_insertion_mode(parser: &mut HtmlTreeConstructor) {
                 // `<template>` (inside `<svg>`) must NOT trigger the
                 // template insertion-mode reset — skip it and keep
                 // searching down the stack.
-                let is_html_template = node
+                let is_html_template = effective
                     .borrow()
                     .kind
                     .as_element()

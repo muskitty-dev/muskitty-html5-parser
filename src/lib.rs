@@ -16,14 +16,15 @@
 
 pub mod error;
 pub mod parser;
+pub mod serialize;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::error::ParseError;
-use crate::parser::HtmlTreeConstructor;
-use muskitty_dom::Node;
-use muskitty_html5_tokenizer::{HtmlTokenizer, Token, Tokenizer};
+use crate::parser::{HtmlTreeConstructor, InsertionMode};
+use muskitty_dom::{append_child, drain_children, remove_child, Node};
+use muskitty_html5_tokenizer::{HtmlTokenizer, State, Token, Tokenizer};
 
 /// 默认输入大小上限：64 MiB（参考 Chromium 的输入保护策略）。
 pub const MAX_INPUT_BYTES: usize = 64 * 1024 * 1024;
@@ -80,6 +81,24 @@ pub fn parse_with_limits(input: &str, max_bytes: usize, max_open_elements: usize
     let mut tokenizer = HtmlTokenizer::new(input);
     let mut constructor = HtmlTreeConstructor::new(document.clone());
     constructor.max_open_elements = max_open_elements;
+    run_tokenizer_loop(&mut constructor, &mut tokenizer);
+    // §13.2.7 "stop parsing" step 4: pop all nodes off the stack of open
+    // elements. This fires the maybe-clone hook (§4.10.10) for any open
+    // <option> elements, mirroring their content into <selectedcontent>.
+    constructor.finalize();
+    ParseOutput {
+        document,
+        errors: constructor.errors,
+    }
+}
+
+/// Drive a tokenizer to completion, feeding every token to the tree
+/// constructor (§13.2.1 two-stage model). Shared by full-document parsing
+/// ([`parse_with_limits`]) and fragment parsing ([`parse_fragment`]).
+///
+/// The tokenizer's initial state is set by the caller (Data for documents,
+/// `fragment_tokenizer_state` for fragments). Returns after EOF.
+fn run_tokenizer_loop(constructor: &mut HtmlTreeConstructor, tokenizer: &mut dyn Tokenizer) {
     loop {
         // §13.2.5.42: The markup declaration open state needs to know
         // whether the adjusted current node is in foreign content to decide
@@ -92,18 +111,124 @@ pub fn parse_with_limits(input: &str, max_bytes: usize, max_open_elements: usize
         let Some(token) = tokenizer.next_token() else {
             break;
         };
-        constructor.run(&token, &mut tokenizer);
+        constructor.run(&token, tokenizer);
         if matches!(token, Token::EOF) {
             break;
         }
     }
-    // §13.2.7 "stop parsing" step 4: pop all nodes off the stack of open
-    // elements. This fires the maybe-clone hook (§4.10.10) for any open
-    // <option> elements, mirroring their content into <selectedcontent>.
+}
+
+/// Parse an HTML fragment (§13.4.2) and return the resulting
+/// `DocumentFragment`.
+///
+/// `context_element` determines the parsing rules: its namespace/name drive
+/// the insertion-mode reset (§13.2.6.4.1), its name selects the tokenizer's
+/// initial state (§13.4.2 step 4), and a `<template>` context enters
+/// InTemplate mode (§13.4.2 step 5).
+///
+/// The algorithm creates a fresh Document, appends a synthetic `<html>` root
+/// directly to the returned fragment, parses the input into that root, then
+/// unwraps the root's children into the fragment (html5lib `getFragment()`:
+/// `openElements[0].reparentChildren(fragment)`).
+pub fn parse_fragment(input: &str, context_element: &Rc<RefCell<Node>>) -> Rc<RefCell<Node>> {
+    let doc = Node::new_document();
+    let fragment = Node::new_document_fragment(&doc);
+    if input.len() > MAX_INPUT_BYTES {
+        return fragment;
+    }
+    let context = recreate_context_element(context_element, &doc);
+    let mut constructor = HtmlTreeConstructor::new(doc);
+    constructor.fragment_context = Some(context.clone());
+    constructor.fragment_root = Some(fragment.clone());
+
+    // §13.4.2 step 11: the root `<html>` is appended to the fragment (not
+    // the Document), so the parsed content lands directly under the fragment.
+    let root = Node::new_element_html("html", vec![], &constructor.document);
+    let _ = append_child(&fragment, root.clone());
+    constructor.open_elements.push(root.clone());
+
+    // §13.4.2 step 5: template context enters the template insertion modes.
+    if is_html_template(context_element) {
+        constructor
+            .template_insertion_modes
+            .push(InsertionMode::InTemplate);
+    }
+    // §13.4.2 step 7: set the insertion mode via the reset algorithm (the
+    // fragment context substitutes for the stack root at `is_last`).
+    crate::parser::dispatch::reset_insertion_mode(&mut constructor);
+
+    let mut tokenizer = HtmlTokenizer::new(input);
+    if let Some(state) = fragment_tokenizer_state(context_element) {
+        tokenizer.set_state(state);
+    }
+    // Note: the tokenizer's appropriate end tag name is deliberately NOT set
+    // to the context element's name. Per html5lib, it is only set when the
+    // tree constructor processes a real start tag; in fragment parsing the
+    // input is raw content of the context (e.g. `</script>` inside a script
+    // context is literal text, not a closing tag — tests4.dat #9).
+
+    run_tokenizer_loop(&mut constructor, &mut tokenizer);
     constructor.finalize();
-    ParseOutput {
-        document,
-        errors: constructor.errors,
+
+    // Unwrap: move the root's children into the fragment, then drop the root.
+    let children = drain_children(&root);
+    for child in children {
+        let _ = append_child(&fragment, child);
+    }
+    let _ = remove_child(&fragment, &root);
+    fragment
+}
+
+/// §13.4.2 step 6: create a copy of the context element in the new
+/// Document (same namespace / prefix / local name / attributes).
+fn recreate_context_element(
+    context_element: &Rc<RefCell<Node>>,
+    doc: &Rc<RefCell<Node>>,
+) -> Rc<RefCell<Node>> {
+    let borrowed = context_element.borrow();
+    let e = borrowed
+        .kind
+        .as_element()
+        .expect("context must be an Element");
+    let attrs = e.attributes.clone();
+    match e.namespace {
+        muskitty_dom::Namespace::Html => Node::new_element_html(&e.local_name, attrs, doc),
+        ns => Node::new_element_ns(e.local_name.clone(), ns, e.prefix.clone(), attrs, doc),
+    }
+}
+
+/// Whether the context element is an HTML `<template>` (§13.4.2 step 5).
+fn is_html_template(context_element: &Rc<RefCell<Node>>) -> bool {
+    context_element
+        .borrow()
+        .kind
+        .as_element()
+        .is_some_and(|e| e.namespace == muskitty_dom::Namespace::Html && e.local_name == "template")
+}
+
+/// §13.4.2 step 4: the tokenizer state selected by the context element.
+/// `None` → Data state.
+///
+/// The rules name HTML elements (a "title element" is an HTML-namespace
+/// element), so a foreign `<title>` (e.g. `svg title` context) stays in
+/// Data state and its `</title>` is a real end tag (foreign-fragment.dat #8).
+fn fragment_tokenizer_state(context_element: &Rc<RefCell<Node>>) -> Option<State> {
+    let borrowed = context_element.borrow();
+    let e = borrowed
+        .kind
+        .as_element()
+        .expect("context must be an Element");
+    if e.namespace != muskitty_dom::Namespace::Html {
+        return None;
+    }
+    match e.local_name.as_str() {
+        "title" | "textarea" => Some(State::RCDATA),
+        "style" | "xmp" | "iframe" | "noembed" | "noframes" => Some(State::RAWTEXT),
+        "script" => Some(State::ScriptData),
+        "plaintext" => Some(State::PLAINTEXT),
+        // "noscript" with the scripting flag enabled → RAWTEXT; our parser
+        // runs with scripting disabled, so noscript stays in Data.
+        _ => None,
     }
 }
 
@@ -153,5 +278,77 @@ mod tests {
     fn normal_input_within_limits_no_errors() {
         let out = parse_with_limits("<div></div>", MAX_INPUT_BYTES, MAX_OPEN_ELEMENTS);
         assert!(out.errors.is_empty(), "expected no errors");
+    }
+
+    // ── Fragment parsing (§13.4.2) ────────────────────────────────────
+
+    fn context_element(local_name: &str) -> Rc<RefCell<Node>> {
+        let doc = Node::new_document();
+        Node::new_element_html(local_name, vec![], &doc)
+    }
+
+    /// Element local name for elements, node_name otherwise (e.g. "#text").
+    fn fragment_child_names(fragment: &Rc<RefCell<Node>>) -> Vec<String> {
+        fragment
+            .borrow()
+            .child_nodes()
+            .iter()
+            .map(|n| {
+                let borrowed = n.borrow();
+                borrowed
+                    .kind
+                    .as_element()
+                    .map(|e| e.local_name.clone())
+                    .unwrap_or_else(|| borrowed.node_name.clone())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn parse_fragment_returns_document_fragment() {
+        let frag = parse_fragment("<b>x</b>", &context_element("div"));
+        assert_eq!(
+            frag.borrow().node_type,
+            muskitty_dom::NodeType::DocumentFragment
+        );
+        assert_eq!(fragment_child_names(&frag), vec!["b"]);
+    }
+
+    #[test]
+    fn parse_fragment_div_context_uses_in_body() {
+        let frag = parse_fragment("<span>hi</span>", &context_element("div"));
+        assert_eq!(fragment_child_names(&frag), vec!["span"]);
+        // The synthetic <html> root is unwrapped — no stray <html> in output.
+        assert!(fragment_child_names(&frag).iter().all(|n| n != "html"));
+    }
+
+    #[test]
+    fn parse_fragment_table_context_uses_in_table() {
+        // InTable: <tr> switches to InTableBody which wraps it in <tbody>,
+        // so the fragment's single top-level child is the <tbody> (matching
+        // the WPT expected `| <tbody>` / `|   <tr>`).
+        let frag = parse_fragment("<tr><td>x</td></tr>", &context_element("table"));
+        assert_eq!(fragment_child_names(&frag), vec!["tbody"]);
+    }
+
+    #[test]
+    fn parse_fragment_title_context_uses_rcdata() {
+        // title context → RCDATA: markup inside is consumed as text, so the
+        // fragment holds a single Text node with the literal input.
+        let frag = parse_fragment("<b>bold</b>", &context_element("title"));
+        assert_eq!(fragment_child_names(&frag), vec!["#text"]);
+        assert_eq!(
+            crate::serialize::inner_html(&frag),
+            "&lt;b&gt;bold&lt;/b&gt;"
+        );
+    }
+
+    #[test]
+    fn parse_fragment_script_context_uses_script_data() {
+        // script context → ScriptData: the input is raw text (only
+        // "</script" would terminate it), so the fragment is one Text node.
+        let frag = parse_fragment("if (a<b) {}", &context_element("script"));
+        assert_eq!(fragment_child_names(&frag), vec!["#text"]);
+        assert_eq!(crate::serialize::inner_html(&frag), "if (a&lt;b) {}");
     }
 }

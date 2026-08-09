@@ -1,12 +1,12 @@
 # html5lib Tree Construction Gap Report
 
-**Pass rate: 100.0% (1716/1716)** — 204 skipped — 0 panicked
+**Pass rate: 99.0% (1889/1908)** — 12 skipped — 0 panicked
 
 ## Per-fixture results
 
 | Fixture | Pass | Fail | Skip | Total |
 |---------|-----:|-----:|-----:|------:|
-| adoption01.dat | 17 | 0 | 1 | 18 |
+| adoption01.dat | 18 | 0 | 0 | 18 |
 | adoption02.dat | 3 | 0 | 0 | 3 |
 | blocks.dat | 48 | 0 | 0 | 48 |
 | comments01.dat | 16 | 0 | 0 | 16 |
@@ -14,12 +14,12 @@
 | domjs-unsafe.dat | 49 | 0 | 0 | 49 |
 | entities01.dat | 75 | 0 | 0 | 75 |
 | entities02.dat | 26 | 0 | 0 | 26 |
-| foreign-fragment.dat | 0 | 0 | 66 | 66 |
+| foreign-fragment.dat | 48 | 18 | 0 | 66 |
 | html5test-com.dat | 24 | 0 | 0 | 24 |
 | inbody01.dat | 4 | 0 | 0 | 4 |
 | isindex.dat | 4 | 0 | 0 | 4 |
 | main-element.dat | 3 | 0 | 0 | 3 |
-| math.dat | 0 | 0 | 8 | 8 |
+| math.dat | 8 | 0 | 0 | 8 |
 | menuitem-element.dat | 20 | 0 | 0 | 20 |
 | namespace-sensitivity.dat | 1 | 0 | 0 | 1 |
 | noscript01.dat | 18 | 0 | 0 | 18 |
@@ -34,9 +34,9 @@
 | scripted_ark.dat | 0 | 0 | 1 | 1 |
 | scripted_webkit01.dat | 0 | 0 | 2 | 2 |
 | search-element.dat | 3 | 0 | 0 | 3 |
-| svg.dat | 0 | 0 | 8 | 8 |
+| svg.dat | 8 | 0 | 0 | 8 |
 | tables01.dat | 19 | 0 | 0 | 19 |
-| template.dat | 111 | 0 | 1 | 112 |
+| template.dat | 112 | 0 | 0 | 112 |
 | tests1.dat | 112 | 0 | 0 | 112 |
 | tests10.dat | 54 | 0 | 0 | 54 |
 | tests11.dat | 13 | 0 | 0 | 13 |
@@ -56,21 +56,20 @@
 | tests25.dat | 26 | 0 | 0 | 26 |
 | tests26.dat | 20 | 0 | 0 | 20 |
 | tests3.dat | 24 | 0 | 0 | 24 |
-| tests4.dat | 0 | 0 | 9 | 9 |
+| tests4.dat | 9 | 0 | 0 | 9 |
 | tests5.dat | 16 | 0 | 1 | 17 |
-| tests6.dat | 39 | 0 | 13 | 52 |
-| tests7.dat | 33 | 0 | 1 | 34 |
+| tests6.dat | 52 | 0 | 0 | 52 |
+| tests7.dat | 34 | 0 | 0 | 34 |
 | tests8.dat | 10 | 0 | 0 | 10 |
 | tests9.dat | 27 | 0 | 0 | 27 |
-| tests_innerHTML_1.dat | 0 | 0 | 81 | 81 |
+| tests_innerHTML_1.dat | 80 | 1 | 0 | 81 |
 | tricky01.dat | 9 | 0 | 0 | 9 |
 | void-in-phrasing.dat | 13 | 0 | 0 | 13 |
 | webkit01.dat | 52 | 0 | 0 | 52 |
-| webkit02.dat | 44 | 0 | 5 | 49 |
+| webkit02.dat | 48 | 0 | 1 | 49 |
 
 ## Skip reasons
 
 | Count | Reason |
 |------:|--------|
-| 192 | document-fragment (fragment parsing not implemented) |
 | 12 | script-on (scripting flag not implemented) |

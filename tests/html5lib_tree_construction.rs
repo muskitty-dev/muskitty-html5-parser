@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use muskitty_dom::{Attribute, Namespace, Node, NodeKind, NodeType};
-use muskitty_html5_parser::parse;
+use muskitty_html5_parser::{parse, parse_fragment};
 
 // ─── Input preprocessing (WHATWG §13.2.3.5) ──────────────────────────
 //
@@ -312,19 +312,28 @@ struct CaseResult {
     data_preview: String,
 }
 
-fn run_case(file: &str, case: &TestCase) -> CaseResult {
-    // Fragment parsing is not yet supported — skip these.
-    if case.document_fragment.is_some() {
-        return CaseResult {
-            file: file.to_string(),
-            index: case.index,
-            passed: false,
-            skipped: true,
-            skip_reason: "document-fragment (fragment parsing not implemented)".to_string(),
-            detail: String::new(),
-            data_preview: preview(&case.data),
-        };
+/// Build a context element from a `#document-fragment` value (§13.4.2).
+///
+/// The value is either a bare HTML local name ("div", "table", …) or a
+/// namespace-qualified foreign name ("svg path", "math mi", …). Attributes
+/// are not exercised by the current fixtures.
+fn context_from_string(s: &str) -> Rc<RefCell<Node>> {
+    let doc = Node::new_document();
+    let mut parts = s.split_whitespace();
+    match parts.next() {
+        Some("svg") => {
+            let name = parts.next().unwrap_or("svg");
+            Node::new_element_ns(name.to_string(), Namespace::Svg, None, vec![], &doc)
+        }
+        Some("math") => {
+            let name = parts.next().unwrap_or("math");
+            Node::new_element_ns(name.to_string(), Namespace::MathMl, None, vec![], &doc)
+        }
+        _ => Node::new_element_html(s, vec![], &doc),
     }
+}
+
+fn run_case(file: &str, case: &TestCase) -> CaseResult {
     // #script-on tests require scripting enabled; we only support disabled.
     if case.scripting == Some(true) {
         return CaseResult {
@@ -341,9 +350,15 @@ fn run_case(file: &str, case: &TestCase) -> CaseResult {
     let input = preprocess_input(&case.data);
     // parse() may panic on edge cases (e.g. adoption agency index bugs);
     // catch_unwind isolates failures so the full suite still runs.
-    let parse_result = catch_unwind(AssertUnwindSafe(|| parse(&input)));
+    let parse_result = catch_unwind(AssertUnwindSafe(|| match &case.document_fragment {
+        Some(context) => {
+            let ctx = context_from_string(context);
+            serialize_document(&parse_fragment(&input, &ctx))
+        }
+        None => serialize_document(&parse(&input)),
+    }));
     let actual = match parse_result {
-        Ok(doc) => serialize_document(&doc),
+        Ok(actual) => actual,
         Err(payload) => {
             let msg = payload
                 .downcast_ref::<&str>()
