@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Clone path dependencies
+        run: bash scripts/setup-deps.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish (skip if version already on crates.io)
         run: |
