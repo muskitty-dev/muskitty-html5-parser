@@ -1,13 +1,13 @@
 # html5lib Tree Construction Gap Report
 
-**Pass rate: 99.0% (1889/1908)** — 12 skipped — 0 panicked
+**Pass rate: 99.0% (1905/1924)** — 14 skipped — 0 panicked
 
 ## Per-fixture results
 
 | Fixture | Pass | Fail | Skip | Total |
 |---------|-----:|-----:|-----:|------:|
 | adoption01.dat | 18 | 0 | 0 | 18 |
-| adoption02.dat | 3 | 0 | 0 | 3 |
+| adoption02.dat | 4 | 0 | 0 | 4 |
 | blocks.dat | 48 | 0 | 0 | 48 |
 | comments01.dat | 16 | 0 | 0 | 16 |
 | doctype01.dat | 37 | 0 | 0 | 37 |
@@ -15,7 +15,7 @@
 | entities01.dat | 75 | 0 | 0 | 75 |
 | entities02.dat | 26 | 0 | 0 | 26 |
 | foreign-fragment.dat | 48 | 18 | 0 | 66 |
-| html5test-com.dat | 24 | 0 | 0 | 24 |
+| html5test-com.dat | 30 | 0 | 0 | 30 |
 | inbody01.dat | 4 | 0 | 0 | 4 |
 | isindex.dat | 4 | 0 | 0 | 4 |
 | main-element.dat | 3 | 0 | 0 | 3 |
@@ -25,18 +25,19 @@
 | noscript01.dat | 18 | 0 | 0 | 18 |
 | pending-spec-changes-plain-text-unsafe.dat | 1 | 0 | 0 | 1 |
 | pending-spec-changes.dat | 3 | 0 | 0 | 3 |
-| plain-text-unsafe.dat | 33 | 0 | 0 | 33 |
+| plain-text-unsafe.dat | 41 | 0 | 0 | 41 |
 | processing-instructions.dat | 124 | 0 | 0 | 124 |
 | quirks01.dat | 4 | 0 | 0 | 4 |
 | ruby.dat | 21 | 0 | 0 | 21 |
 | scriptdata01.dat | 26 | 0 | 0 | 26 |
 | scripted_adoption01.dat | 0 | 0 | 1 | 1 |
 | scripted_ark.dat | 0 | 0 | 1 | 1 |
+| scripted_foster01.dat | 0 | 0 | 2 | 2 |
 | scripted_webkit01.dat | 0 | 0 | 2 | 2 |
 | search-element.dat | 3 | 0 | 0 | 3 |
 | svg.dat | 8 | 0 | 0 | 8 |
 | tables01.dat | 19 | 0 | 0 | 19 |
-| template.dat | 112 | 0 | 0 | 112 |
+| template.dat | 113 | 0 | 0 | 113 |
 | tests1.dat | 112 | 0 | 0 | 112 |
 | tests10.dat | 54 | 0 | 0 | 54 |
 | tests11.dat | 13 | 0 | 0 | 13 |
@@ -72,4 +73,4 @@
 
 | Count | Reason |
 |------:|--------|
-| 12 | script-on (scripting flag not implemented) |
+| 14 | script-on (scripting flag not implemented) |

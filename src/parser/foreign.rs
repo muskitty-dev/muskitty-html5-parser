@@ -29,17 +29,23 @@ const XMLNS_NS: &str = "http://www.w3.org/2000/xmlns/";
 
 // ── Integration points (§13.2.6) ─────────────────────────────────────
 
-/// Return the adjusted current node (§13.2.6.1).
+/// Return the adjusted current node (§13.2.6.1), or `None` when there is
+/// no adjusted current node.
 ///
 /// "The adjusted current node is the context element if the parser was
 /// created as part of the HTML fragment parsing algorithm and the stack of
 /// open elements has only one element (fragment case); otherwise, the
 /// adjusted current node is the current node."
 ///
-/// This implementation does not support fragment parsing, so the adjusted
-/// current node is always the current node.
-fn adjusted_current_node(parser: &HtmlTreeConstructor) -> Rc<RefCell<Node>> {
-    parser.current_node()
+/// In fragment parsing the stack holds only the synthetic `<html>` root
+/// before any content is inserted, so the context element (e.g. `svg path`)
+/// governs the dispatcher — foreign contexts route to the foreign-content
+/// rules even though the stack top is an HTML element.
+fn adjusted_current_node(parser: &HtmlTreeConstructor) -> Option<Rc<RefCell<Node>>> {
+    if parser.fragment_context.is_some() && parser.open_elements.len() == 1 {
+        return parser.fragment_context.clone();
+    }
+    Some(parser.current_node())
 }
 
 /// Whether `node` is a MathML text integration point (§13.2.6).
@@ -92,9 +98,14 @@ pub fn is_html_integration_point(node: &Rc<RefCell<Node>>) -> bool {
 
 /// Whether the adjusted current node is in the HTML namespace.
 fn adjusted_current_node_is_html(parser: &HtmlTreeConstructor) -> bool {
-    let node = adjusted_current_node(parser);
-    let n = node.borrow();
-    matches!(&n.kind, NodeKind::Element(e) if e.namespace == Namespace::Html)
+    match adjusted_current_node(parser) {
+        // No adjusted current node → HTML content rules.
+        None => true,
+        Some(node) => {
+            let n = node.borrow();
+            matches!(&n.kind, NodeKind::Element(e) if e.namespace == Namespace::Html)
+        }
+    }
 }
 
 /// The tree construction dispatcher (§13.2.6).
@@ -111,7 +122,9 @@ pub fn dispatcher_routes_to_foreign(parser: &HtmlTreeConstructor, token: &Token)
     if parser.open_elements.is_empty() {
         return false;
     }
-    let current = adjusted_current_node(parser);
+    let Some(current) = adjusted_current_node(parser) else {
+        return false;
+    };
 
     // If the adjusted current node is an element in the HTML namespace →
     // HTML content.
@@ -566,7 +579,11 @@ fn process_start_tag_in_foreign(
             }
             parser.open_elements.pop();
         }
-        // Reprocess the token in the current insertion mode (HTML content).
+        // Reprocess the token in the current insertion mode (HTML content):
+        // skip the foreign dispatcher, which would route the token right
+        // back here (the adjusted current node is still the fragment
+        // context element when only the synthetic `<html>` root remains).
+        parser.skip_foreign_dispatch_once = true;
         return Step::Reprocess;
     }
 
@@ -661,6 +678,7 @@ fn process_end_tag_in_foreign(
             }
             parser.open_elements.pop();
         }
+        parser.skip_foreign_dispatch_once = true;
         return Step::Reprocess;
     }
 

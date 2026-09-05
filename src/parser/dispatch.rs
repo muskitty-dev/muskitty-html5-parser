@@ -46,7 +46,16 @@ pub fn dispatch(
     // current insertion mode. The dispatcher is re-evaluated on every token
     // (and on every reprocess), so once a foreign element is popped off the
     // stack the parser automatically returns to HTML content.
-    if super::foreign::dispatcher_routes_to_foreign(parser, token) {
+    //
+    // Exception: a foreign-content HTML breakout (§13.2.6.5 "reprocess the
+    // token") consumes the flag set by the breakout handler so the
+    // reprocessed token goes straight to the current insertion mode —
+    // re-running the dispatcher would route it back to the foreign rules
+    // (the adjusted current node is still the fragment context element)
+    // and loop forever.
+    let skip_foreign = parser.skip_foreign_dispatch_once;
+    parser.skip_foreign_dispatch_once = false;
+    if !skip_foreign && super::foreign::dispatcher_routes_to_foreign(parser, token) {
         return super::foreign::process_in_foreign_content(parser, token, tokenizer);
     }
     dispatch_in_current_mode(parser, token, tokenizer)

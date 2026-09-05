@@ -110,6 +110,12 @@ pub struct HtmlTreeConstructor {
     /// fragment parsing; used by "reset the insertion mode appropriately"
     /// (§13.2.6.4.1) to substitute the stack root's local name.
     pub fragment_context: Option<Rc<RefCell<Node>>>,
+    /// One-shot flag: the next dispatch of the current token must skip the
+    /// foreign-content dispatcher and go straight to the insertion-mode
+    /// rules. Set by the foreign-content HTML breakout steps (§13.2.6.5
+    /// "reprocess the token"): without it the reprocessed token would hit
+    /// the adjusted current node (the fragment context) again and loop.
+    pub skip_foreign_dispatch_once: bool,
     /// The DocumentFragment being built (§13.4.2). Set only during fragment
     /// parsing; the parsed content is unwrapped into it at the end.
     pub fragment_root: Option<Rc<RefCell<Node>>>,
@@ -139,6 +145,7 @@ impl HtmlTreeConstructor {
             quirks_mode: false,
             max_open_elements: crate::MAX_OPEN_ELEMENTS,
             fragment_context: None,
+            skip_foreign_dispatch_once: false,
             fragment_root: None,
         }
     }
@@ -162,7 +169,19 @@ impl HtmlTreeConstructor {
     /// bogus comment state when encountering `<![CDATA[` (§13.2.5.42).
     /// Returns `false` when the stack is empty (no adjusted current node)
     /// or the current node is in the HTML namespace.
+    ///
+    /// §13.2.4 fragment case: when the stack holds only the synthetic
+    /// `<html>` root, the adjusted current node is the fragment context
+    /// element, so an `svg`/`math` context routes `<![CDATA[` to the CDATA
+    /// section state.
     pub fn current_node_in_foreign_content(&self) -> bool {
+        if self.fragment_context.is_some() && self.open_elements.len() == 1 {
+            if let Some(ctx) = &self.fragment_context {
+                let n = ctx.borrow();
+                return matches!(&n.kind, muskitty_dom::NodeKind::Element(e)
+                    if e.namespace != muskitty_dom::Namespace::Html);
+            }
+        }
         match self.open_elements.last() {
             Some(node) => {
                 let n = node.borrow();
