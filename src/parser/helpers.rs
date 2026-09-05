@@ -11,6 +11,7 @@ use muskitty_dom::{append_child, Attribute, Node, NodeKind, NodeType};
 
 use super::ActiveFormattingEntry;
 use super::HtmlTreeConstructor;
+use super::SelectSelectednessMemo;
 use crate::error::ParseError;
 use muskitty_html5_tokenizer::TagToken;
 
@@ -261,7 +262,7 @@ pub fn insert_element(parser: &mut HtmlTreeConstructor, token: &TagToken) {
         .map(|e| e.namespace == muskitty_dom::Namespace::Html && e.local_name == "option")
         .unwrap_or(false);
     if is_option {
-        on_option_inserted(&element);
+        on_option_inserted_with_memo(parser, &element);
     }
 }
 
@@ -1696,7 +1697,14 @@ fn get_select_enabled_selectedcontent(select: &Rc<RefCell<Node>>) -> Option<Rc<R
 ///    selectedness=true → set first non-disabled option's selectedness=true.
 /// 2. If multiple absent and 2+ options have selectedness=true → set all
 ///    but last to false.
-fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) {
+///
+/// F-8：返回 `(has_selected_after, has_non_disabled)` 供增量备忘录维护：
+/// - `has_selected_after`：算法跑完后是否仍存在 selectedness=true 的
+///   option；
+/// - `has_non_disabled`：是否存在非 disabled 的 option。仅当
+///   `has_selected_after == false` 时可信（此时 step 1 的扫描必然执行）；
+///   为 true 时调用方不消费该值，固定返回 false 并在此注明。
+fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) -> (bool, bool) {
     let has_multiple = select
         .borrow()
         .kind
@@ -1704,7 +1712,9 @@ fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) {
         .and_then(|e| e.get_attribute("multiple"))
         .is_some();
     if has_multiple {
-        return;
+        // multiple 存在时算法整体 no-op（调用方 on_option_inserted_with_memo
+        // 已提前短路；此分支保留给无备忘录入口）。
+        return (false, false);
     }
     // Display size: 1 if size attribute absent or parses to 1.
     let display_size: u32 = select
@@ -1739,14 +1749,44 @@ fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) {
                     if let NodeKind::Element(ref mut e) = opt.borrow_mut().kind {
                         e.selectedness = true;
                     }
-                    return;
+                    // step 1 命中：恰有 1 个 selected（刚设置）→ step 2
+                    // 必为 no-op，可直接返回。
+                    return (true, true);
+                }
+            }
+            // 全部 disabled：无 selected、无非 disabled。step 2 同样无 op。
+            return (false, false);
+        }
+        // 已有 selected：step 1 不动，**继续落入 step 2**（可能与本次
+        // 插入的 `<option selected>` 组成 ≥2 个选中而触发取消）。
+        // has_non_disabled 从此处不可信，按文档约定返回 false。
+        let selected_indices: Vec<usize> = options
+            .iter()
+            .enumerate()
+            .filter(|(_, opt)| {
+                opt.borrow()
+                    .kind
+                    .as_element()
+                    .map(|e| e.selectedness)
+                    .unwrap_or(false)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if selected_indices.len() >= 2 {
+            let last = *selected_indices.last().unwrap();
+            for &i in &selected_indices {
+                if i != last {
+                    if let NodeKind::Element(ref mut e) = options[i].borrow_mut().kind {
+                        e.selectedness = false;
+                    }
                 }
             }
         }
+        return (true, false);
     }
 
     // Step 2: if 2+ options have selectedness=true, set all but last to
-    // false.
+    // false.（display_size != 1 时 step 1 被跳过，step 2 照常执行。）
     let selected_indices: Vec<usize> = options
         .iter()
         .enumerate()
@@ -1768,7 +1808,9 @@ fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) {
                 }
             }
         }
+        return (true, false);
     }
+    (false, false)
 }
 
 /// "Clone an option into a selectedcontent" (§4.10.17): deep-clone all
@@ -1830,8 +1872,75 @@ pub fn maybe_clone_option_into_selectedcontent(option: &Rc<RefCell<Node>>) {
 /// Hook called after an `<option>` element is inserted into the DOM (per
 /// §4.10.10 "option HTML element insertion steps"): runs the selectedness
 /// setting algorithm on the nearest ancestor select.
-pub fn on_option_inserted(option: &Rc<RefCell<Node>>) {
-    if let Some(select) = find_nearest_ancestor_select(option) {
-        selectedness_setting_algorithm(&select);
+/// option 插入钩子（§4.10.10 "option HTML element insertion steps"）的
+/// 解析器内部版本：带增量备忘录（审计 F-8）。
+///
+/// 敌意输入 `<select>` + 65k 个 `<option>` 令每次插入都全子树扫描
+/// ——O(n²) 挂起（审计 P1）。备忘录记录 `(select, has_selected,
+/// all_disabled)`，对**可证明为 no-op** 的插入直接跳过子树扫描：
+///
+/// - step 1（选中首个非 disabled）仅在 `display_size==1 && 无已选中 &&
+///   存在非 disabled` 时可能生效；
+/// - step 2（取消除最后一个外的全部选中）仅在本次插入自带选中
+///   （`<option selected>`）时可能生效。
+///
+/// 因此对无 `selected` 属性的插入：`display_size≠1`、或已有选中、或
+/// （O 自身 disabled 且此前全 disabled）时两步均不可能改变任何状态
+/// → no-op。备忘录以 `Weak` 持有 select：升级失败（旧 select 已释放）
+/// 或非同一 select 即失效，防地址复用误命中；失效或插入自带 `selected`
+/// 时回退完整算法并重建备忘录。
+pub(crate) fn on_option_inserted_with_memo(
+    parser: &mut HtmlTreeConstructor,
+    option: &Rc<RefCell<Node>>,
+) {
+    let Some(select) = find_nearest_ancestor_select(option) else {
+        return;
+    };
+    let (has_multiple, display_size_1) = {
+        let sb = select.borrow();
+        let e = sb.kind.as_element();
+        (
+            e.and_then(|e| e.get_attribute("multiple")).is_some(),
+            e.and_then(|e| e.get_attribute("size"))
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(1)
+                == 1,
+        )
+    };
+    if has_multiple {
+        // multiple 存在时算法整体 no-op（§4.10.10 两步均以 multiple 缺失
+        // 为前提）。
+        return;
     }
+    let (o_selected, o_disabled) = match option.borrow().kind.as_element() {
+        Some(e) => (e.selectedness, e.get_attribute("disabled").is_some()),
+        None => return,
+    };
+
+    let memo_hits_same_select = parser
+        .select_selectedness_memo
+        .as_ref()
+        .and_then(|m| m.select.upgrade())
+        .is_some_and(|s| Rc::ptr_eq(&s, &select));
+    if memo_hits_same_select {
+        let memo = parser.select_selectedness_memo.as_ref().unwrap();
+        let skip = !o_selected
+            && (!display_size_1 || memo.has_selected || (o_disabled && memo.all_disabled));
+        if skip {
+            let memo = parser.select_selectedness_memo.as_mut().unwrap();
+            memo.all_disabled = memo.all_disabled && o_disabled;
+            return;
+        }
+    }
+
+    // 慢路径：完整算法（与修复前行为一致），随后重建备忘录。
+    let (has_selected_after, has_non_disabled) = selectedness_setting_algorithm(&select);
+    parser.select_selectedness_memo = Some(SelectSelectednessMemo {
+        select: Rc::downgrade(&select),
+        has_selected: has_selected_after,
+        // has_non_disabled 仅在 has_selected_after==false 时可信（见算法
+        // 文档）；为 true 时 all_disabled 恒为 false 也无妨——该值只在
+        // !has_selected 的跳过判定中被消费。
+        all_disabled: !has_non_disabled,
+    });
 }

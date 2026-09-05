@@ -129,6 +129,23 @@ pub struct HtmlTreeConstructor {
     /// The DocumentFragment being built (§13.4.2). Set only during fragment
     /// parsing; the parsed content is unwrapped into it at the end.
     pub fragment_root: Option<Rc<RefCell<Node>>>,
+    /// selectedness 算法的增量备忘录（审计 F-8，见
+    /// [`helpers::on_option_inserted_with_memo`]）。解析器内部状态。
+    pub select_selectedness_memo: Option<SelectSelectednessMemo>,
+}
+
+/// [`on_option_inserted_with_memo`](crate::parser::helpers) 的备忘录条目
+/// （审计 F-8）。`select` 以 `Weak` 持有：升级失败或非同一 select 即失效，
+/// 防 Rc 地址复用误命中。
+pub struct SelectSelectednessMemo {
+    /// 备忘录所属的 `<select>`。
+    pub select: std::rc::Weak<RefCell<Node>>,
+    /// 截至上次完整算法执行后，该 select 下是否存在 selectedness=true
+    /// 的 option。
+    pub has_selected: bool,
+    /// 截至上次完整算法执行后，是否全部 option 均 disabled（仅在
+    /// `!has_selected` 时被消费）。
+    pub all_disabled: bool,
 }
 
 impl HtmlTreeConstructor {
@@ -157,6 +174,7 @@ impl HtmlTreeConstructor {
             fragment_context: None,
             skip_foreign_dispatch_once: false,
             fragment_root: None,
+            select_selectedness_memo: None,
         }
     }
 
@@ -321,6 +339,124 @@ mod tests {
         assert!(
             doc.borrow().first_element_child().is_some(),
             "document must still build normally"
+        );
+    }
+
+    // —— F-8: selectedness 增量备忘录 ——
+
+    fn collect_options(
+        node: &std::rc::Rc<std::cell::RefCell<Node>>,
+        out: &mut Vec<std::rc::Rc<std::cell::RefCell<Node>>>,
+    ) {
+        let children: Vec<_> = node.borrow().child_nodes().to_vec();
+        for c in children {
+            let is_option = c
+                .borrow()
+                .kind
+                .as_element()
+                .map(|e| e.local_name == "option")
+                .unwrap_or(false);
+            if is_option {
+                out.push(c.clone());
+            }
+            collect_options(&c, out);
+        }
+    }
+
+    /// 解析 html 并按文档顺序返回各 `<option>` 的 selectedness。
+    fn option_selected_states(html: &str) -> Vec<bool> {
+        let doc = crate::parse(html);
+        let mut opts = Vec::new();
+        collect_options(&doc, &mut opts);
+        opts.iter()
+            .map(|o| {
+                o.borrow()
+                    .kind
+                    .as_element()
+                    .map(|e| e.selectedness)
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn option_first_plain_becomes_selected() {
+        // §4.10.10 step 1：无选中且 display size 1 → 首个非 disabled 选中。
+        assert_eq!(
+            option_selected_states("<select><option>a<option>b</select>"),
+            vec![true, false]
+        );
+    }
+
+    #[test]
+    fn option_disabled_first_selects_second() {
+        assert_eq!(
+            option_selected_states("<select><option disabled>a<option>b</select>"),
+            vec![false, true]
+        );
+    }
+
+    #[test]
+    fn option_all_disabled_none_selected() {
+        assert_eq!(
+            option_selected_states("<select><option disabled>a<option disabled>b</select>"),
+            vec![false, false]
+        );
+    }
+
+    #[test]
+    fn option_selected_attr_and_last_selected_kept() {
+        // selected 属性 → 初始选中；step 2 保最后一个。
+        assert_eq!(
+            option_selected_states("<select><option selected>a<option>b</select>"),
+            vec![true, false]
+        );
+        assert_eq!(
+            option_selected_states("<select><option selected>a<option selected>b</select>"),
+            vec![false, true]
+        );
+    }
+
+    #[test]
+    fn option_two_selects_independent_memos() {
+        // 两个 select：第二个的备忘录失效重建，互不串扰。
+        assert_eq!(
+            option_selected_states("<select><option selected>a</select><select><option>b</select>"),
+            vec![true, true]
+        );
+    }
+
+    #[test]
+    fn option_multiple_select_no_adjustment() {
+        assert_eq!(
+            option_selected_states("<select multiple><option selected>a<option>b</select>"),
+            vec![true, false]
+        );
+    }
+
+    #[test]
+    fn many_plain_options_parse_fast_via_memo() {
+        // 65k plain option：修复前每次插入全子树扫描 O(n²)（~2×10^9 次
+        // 节点访问，分钟级挂起）；修复后仅首次走慢路径，整体 O(n)。
+        // 本测试同时是隐式性能回归测试——O(n²) 回归会令 CI 超时。
+        let mut input = String::with_capacity(65_000 * 16);
+        input.push_str("<select>");
+        for _ in 0..65_000 {
+            input.push_str("<option>x</option>");
+        }
+        input.push_str("</select>");
+        let doc = crate::parse(&input);
+        let mut opts = Vec::new();
+        collect_options(&doc, &mut opts);
+        assert_eq!(opts.len(), 65_000, "all options must be in the tree");
+        assert!(
+            opts[0]
+                .borrow()
+                .kind
+                .as_element()
+                .map(|e| e.selectedness)
+                .unwrap_or(false),
+            "first option must be selected (step 1)"
         );
     }
 
