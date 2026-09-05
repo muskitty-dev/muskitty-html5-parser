@@ -37,6 +37,16 @@ use muskitty_html5_tokenizer::{Token, Tokenizer};
 /// （等价于规范允许的 "stop parsing" 降级），避免无限循环/panic。
 pub const MAX_REPROCESS_COUNT: u32 = 50;
 
+/// 活动格式化元素列表（AFE, §13.2.4.3）硬上限。
+///
+/// 审计 F-7：Noah's Ark 子句只逐出第 3 个"完全相同"的条目，`<b a=1><b
+/// a=2><b a=3>…`（属性各异）令列表无界增长，而每个后续格式化 start/end
+/// tag 都要全列表扫描（Noah's Ark / `find_formatting_element` / AAA 的
+/// `in_afe`）——O(n²) 挂起（~17 万条目即数十秒）。超限移除最后一个
+/// marker 之后的最早元素（Noah's Ark 作用域一致），与浏览器的
+/// "Noah's Ark + 列表上限"实践对齐。256 远超真实页面的活动格式化元素数。
+pub const MAX_ACTIVE_FORMATTING_ELEMENTS: usize = 256;
+
 /// An entry in the list of active formatting elements (§13.2.6.2).
 ///
 /// The list holds either a reference to an element on the open elements
@@ -268,6 +278,49 @@ mod tests {
                 .any(|e| matches!(e, ParseError::ReprocessLimitExceeded { .. })),
             "expected ReprocessLimitExceeded error, got {:?}",
             constructor.errors
+        );
+    }
+
+    // —— F-7: AFE 列表硬上限 ——
+
+    #[test]
+    fn afe_list_capped_under_distinct_formatting_elements() {
+        // `<b a=i>` 属性各异绕过 Noah's Ark 逐出（它只逐第 3 个完全相同
+        // 条目），修复前列表无界增长；白盒断言上限生效。
+        let mut input = String::new();
+        for i in 0..600 {
+            input.push_str(&format!("<b a={i}>"));
+        }
+        let document = Node::new_document();
+        let mut constructor = HtmlTreeConstructor::new(document);
+        let mut tokenizer = HtmlTokenizer::new(&input);
+        while let Some(tok) = tokenizer.next_token() {
+            if matches!(tok, muskitty_html5_tokenizer::Token::EOF) {
+                break;
+            }
+            constructor.run(&tok, &mut tokenizer);
+        }
+        assert_eq!(
+            constructor.active_formatting_elements.len(),
+            crate::parser::MAX_ACTIVE_FORMATTING_ELEMENTS,
+            "AFE list must be capped at MAX_ACTIVE_FORMATTING_ELEMENTS"
+        );
+    }
+
+    #[test]
+    fn large_distinct_formatting_input_parses_completely() {
+        // 端到端冒烟：3000 个属性各异的 `<b>` 正常构建（修复前 3k 规模
+        // 的 Noah's Ark 扫描已 ~4.5×10^6 次条目比较）。更大规模（5 万）
+        // 的剩余成本来自 reconstruct 放大（审计 H-M1，P2 项，超本轮
+        // 范围），不放进 CI。
+        let mut input = String::new();
+        for i in 0..3_000 {
+            input.push_str(&format!("<b a={i}>"));
+        }
+        let doc = crate::parse(&input);
+        assert!(
+            doc.borrow().first_element_child().is_some(),
+            "document must still build normally"
         );
     }
 

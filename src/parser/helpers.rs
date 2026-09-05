@@ -820,6 +820,22 @@ pub fn push_formatting_element(parser: &mut HtmlTreeConstructor, element: Rc<Ref
             parser.active_formatting_elements.remove(idx);
         }
     }
+    // F-7（审计 P2）：列表硬上限。超限移除最后一个 marker 之后的最早
+    // 元素（与 Noah's Ark 同作用域；marker 之后无元素时兜底移除列表首项，
+    // 保证有界性优先于 marker 保护——仅敌意输入可达）。
+    if parser.active_formatting_elements.len() >= crate::parser::MAX_ACTIVE_FORMATTING_ELEMENTS {
+        let section_start = parser
+            .active_formatting_elements
+            .iter()
+            .rposition(|e| matches!(e, ActiveFormattingEntry::Marker))
+            .map_or(0, |m| m + 1);
+        let remove_idx = if section_start < parser.active_formatting_elements.len() {
+            section_start
+        } else {
+            0
+        };
+        parser.active_formatting_elements.remove(remove_idx);
+    }
     parser
         .active_formatting_elements
         .push(ActiveFormattingEntry::Element(element));
