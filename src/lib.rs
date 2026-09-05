@@ -136,7 +136,19 @@ pub fn parse_fragment(input: &str, context_element: &Rc<RefCell<Node>>) -> Rc<Re
     if input.len() > MAX_INPUT_BYTES {
         return fragment;
     }
-    let context = recreate_context_element(context_element, &doc);
+    let context = match recreate_context_element(context_element, &doc) {
+        Some(c) => c,
+        None => {
+            // F-9（审计 H-M2）：上下文非 Element（如对 Text/Comment/Document
+            // 调用 [`set_inner_html`]）。此前 `expect` panic——脚本桥接入后
+            // 即远程 DoS。按 §13.4.2 "follow the rules for the context
+            // element" 精神兜底：取中性流内容容器 `<div>` 作上下文（Data
+            // 状态 + InBody 插入模式），保证输入内容按 body 语义完整解析，
+            // 优雅降级不中断。（`<html>` 上下文会落入 BeforeHead 模式、
+            // 隐式 head/body 吞掉内容，故不采用。）
+            Node::new_element_html("div", vec![], &doc)
+        }
+    };
     let mut constructor = HtmlTreeConstructor::new(doc);
     constructor.fragment_context = Some(context.clone());
     constructor.fragment_root = Some(fragment.clone());
@@ -181,20 +193,20 @@ pub fn parse_fragment(input: &str, context_element: &Rc<RefCell<Node>>) -> Rc<Re
 
 /// §13.4.2 step 6: create a copy of the context element in the new
 /// Document (same namespace / prefix / local name / attributes).
+///
+/// F-9: 上下文非 Element 时返回 `None`（调用方按 `<html>` 上下文兜底），
+/// 不再 panic。
 fn recreate_context_element(
     context_element: &Rc<RefCell<Node>>,
     doc: &Rc<RefCell<Node>>,
-) -> Rc<RefCell<Node>> {
+) -> Option<Rc<RefCell<Node>>> {
     let borrowed = context_element.borrow();
-    let e = borrowed
-        .kind
-        .as_element()
-        .expect("context must be an Element");
+    let e = borrowed.kind.as_element()?;
     let attrs = e.attributes.clone();
-    match e.namespace {
+    Some(match e.namespace {
         muskitty_dom::Namespace::Html => Node::new_element_html(&e.local_name, attrs, doc),
         ns => Node::new_element_ns(e.local_name.clone(), ns, e.prefix.clone(), attrs, doc),
-    }
+    })
 }
 
 /// Whether the context element is an HTML `<template>` (§13.4.2 step 5).
@@ -214,10 +226,8 @@ fn is_html_template(context_element: &Rc<RefCell<Node>>) -> bool {
 /// Data state and its `</title>` is a real end tag (foreign-fragment.dat #8).
 fn fragment_tokenizer_state(context_element: &Rc<RefCell<Node>>) -> Option<State> {
     let borrowed = context_element.borrow();
-    let e = borrowed
-        .kind
-        .as_element()
-        .expect("context must be an Element");
+    // F-9: 非 Element 上下文 → Data 状态（调用方已按 `<html>` 兜底）。
+    let e = borrowed.kind.as_element()?;
     if e.namespace != muskitty_dom::Namespace::Html {
         return None;
     }
@@ -350,5 +360,36 @@ mod tests {
         let frag = parse_fragment("if (a<b) {}", &context_element("script"));
         assert_eq!(fragment_child_names(&frag), vec!["#text"]);
         assert_eq!(crate::serialize::inner_html(&frag), "if (a&lt;b) {}");
+    }
+
+    // —— F-9: 非 Element 上下文兜底（不再 panic）——
+
+    #[test]
+    fn parse_fragment_text_context_degrades_not_panics() {
+        // F-9：Text 节点作为上下文 → 按 `<html>`（Data 状态 + InBody）
+        // 兜底解析，产出正常 fragment。
+        let doc = Node::new_document();
+        let text = Node::new_text("hello", &doc);
+        let frag = parse_fragment("<b>x</b>", &text);
+        assert_eq!(fragment_child_names(&frag), vec!["b"]);
+    }
+
+    #[test]
+    fn parse_fragment_document_context_degrades_not_panics() {
+        let doc = Node::new_document();
+        let frag = parse_fragment("<b>x</b>", &doc);
+        assert_eq!(fragment_child_names(&frag), vec!["b"]);
+    }
+
+    #[test]
+    fn set_inner_html_on_text_node_does_not_panic() {
+        // F-9 端到端：脚本桥接路径（text.innerHTML = ...）不得 abort。
+        let doc = Node::new_document();
+        let text = Node::new_text("old", &doc);
+        crate::serialize::set_inner_html(&text, "<b>x</b>");
+        let children = text.borrow().child_nodes().to_vec();
+        assert_eq!(children.len(), 1, "content must be replaced");
+        // DOM 惯例：HTML 元素 node_name 为大写。
+        assert_eq!(children[0].borrow().node_name, "B");
     }
 }
