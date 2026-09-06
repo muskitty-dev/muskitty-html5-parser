@@ -555,7 +555,7 @@ mod tests {
                     .unwrap_or(false)
             })
             .collect();
-        assert_eq!(selected[65_000 - 1], true, "last option must stay selected");
+        assert!(selected[65_000 - 1], "last option must stay selected");
         assert!(
             !selected[..65_000 - 1].iter().any(|&s| s),
             "all earlier options must be deselected"
