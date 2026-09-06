@@ -11,7 +11,9 @@ use muskitty_dom::{append_child, Attribute, Node, NodeKind, NodeType};
 
 use super::ActiveFormattingEntry;
 use super::HtmlTreeConstructor;
+use super::SelectSelectedcontentMemo;
 use super::SelectSelectednessMemo;
+use super::SelectedcontentLookup;
 use crate::error::ParseError;
 use muskitty_html5_tokenizer::TagToken;
 
@@ -208,6 +210,36 @@ fn foster_parent_location(parser: &HtmlTreeConstructor) -> FosterLocation {
 /// 注意：跳过 push 意味着后续的 end tag 可能匹配错误节点，但这是降级可接受代价
 /// ——浏览器在超深嵌套时也会进入类似的退化模式。
 pub fn push_open_element(parser: &mut HtmlTreeConstructor, node: Rc<RefCell<Node>>) {
+    // P-1：selectedcontent 插入树后（insert_node 先于本函数），刷新其
+    // 所属 select 的查找备忘录，令 option pop 钩子的 selectedcontent
+    // 查找维持 O(1)。放在深度检查前：超深跳过 push 时节点已在树中，
+    // 备忘录同样需要更新。解析器只 append——树序首个 selectedcontent
+    // 一旦存在即不变，故 Absent→Present 单向翻转、Present 保持首个。
+    let is_selectedcontent = node
+        .borrow()
+        .kind
+        .as_element()
+        .map(|e| e.namespace == muskitty_dom::Namespace::Html && e.local_name == "selectedcontent")
+        .unwrap_or(false);
+    if is_selectedcontent {
+        if let Some(select) = find_nearest_ancestor_select(&node) {
+            let already_present = parser
+                .select_selectedcontent_memo
+                .as_ref()
+                .and_then(|m| m.select.upgrade())
+                .is_some_and(|s| Rc::ptr_eq(&s, &select))
+                && matches!(
+                    parser.select_selectedcontent_memo.as_ref().unwrap().lookup,
+                    SelectedcontentLookup::Present(_)
+                );
+            if !already_present {
+                parser.select_selectedcontent_memo = Some(SelectSelectedcontentMemo {
+                    select: Rc::downgrade(&select),
+                    lookup: SelectedcontentLookup::Present(Rc::downgrade(&node)),
+                });
+            }
+        }
+    }
     if parser.open_elements.len() >= parser.max_open_elements {
         parser.errors.push(ParseError::DomDepthExceeded {
             depth: parser.open_elements.len(),
@@ -755,7 +787,7 @@ pub fn pop_open_element(parser: &mut HtmlTreeConstructor) -> Option<Rc<RefCell<N
             .map(|e| e.namespace == muskitty_dom::Namespace::Html && e.local_name == "option")
             .unwrap_or(false);
         if is_option {
-            maybe_clone_option_into_selectedcontent(n);
+            maybe_clone_option_into_selectedcontent(parser, n);
         }
     }
     node
@@ -1652,7 +1684,15 @@ fn get_list_of_options(select: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
 /// "Get a select's enabled selectedcontent" (§4.10.17): if select has
 /// `multiple`, return None; otherwise return the first `selectedcontent`
 /// descendant in tree order.
-fn get_select_enabled_selectedcontent(select: &Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
+///
+/// P-1：带备忘录（见 [`SelectSelectedcontentMemo`]）。`Absent` 命中直接
+/// O(1) 返回 None；`Present` 升级即首个（append-only 下树序首个不变）。
+/// 备忘录未命中/升级失败时全子树 DFS 并重建。`multiple` 判定恒在
+/// 备忘录之前（与规范一致，备忘录只缓存节点查找）。
+fn get_select_enabled_selectedcontent(
+    parser: &mut HtmlTreeConstructor,
+    select: &Rc<RefCell<Node>>,
+) -> Option<Rc<RefCell<Node>>> {
     let has_multiple = select
         .borrow()
         .kind
@@ -1662,7 +1702,23 @@ fn get_select_enabled_selectedcontent(select: &Rc<RefCell<Node>>) -> Option<Rc<R
     if has_multiple {
         return None;
     }
-    // Find first selectedcontent descendant in tree order (DFS).
+    let memo_hits_same_select = parser
+        .select_selectedcontent_memo
+        .as_ref()
+        .and_then(|m| m.select.upgrade())
+        .is_some_and(|s| Rc::ptr_eq(&s, select));
+    if memo_hits_same_select {
+        match &parser.select_selectedcontent_memo.as_ref().unwrap().lookup {
+            SelectedcontentLookup::Absent => return None,
+            SelectedcontentLookup::Present(w) => {
+                if let Some(sc) = w.upgrade() {
+                    return Some(sc);
+                }
+                // 升级失败（解析期不应发生）：落入重扫重建。
+            }
+        }
+    }
+    // 慢路径：全子树 DFS（与修复前行为一致），随后重建备忘录。
     fn find(node: &Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
         let children: Vec<Rc<RefCell<Node>>> = {
             let n = node.borrow();
@@ -1687,7 +1743,15 @@ fn get_select_enabled_selectedcontent(select: &Rc<RefCell<Node>>) -> Option<Rc<R
         }
         None
     }
-    find(select)
+    let found = find(select);
+    parser.select_selectedcontent_memo = Some(SelectSelectedcontentMemo {
+        select: Rc::downgrade(select),
+        lookup: match &found {
+            Some(sc) => SelectedcontentLookup::Present(Rc::downgrade(sc)),
+            None => SelectedcontentLookup::Absent,
+        },
+    });
+    found
 }
 
 /// "The selectedness setting algorithm" (§4.10.10): given a select
@@ -1698,13 +1762,18 @@ fn get_select_enabled_selectedcontent(select: &Rc<RefCell<Node>>) -> Option<Rc<R
 /// 2. If multiple absent and 2+ options have selectedness=true → set all
 ///    but last to false.
 ///
-/// F-8：返回 `(has_selected_after, has_non_disabled)` 供增量备忘录维护：
+/// F-8：返回 `(has_selected_after, has_non_disabled, selected_node)` 供增量
+/// 备忘录维护：
 /// - `has_selected_after`：算法跑完后是否仍存在 selectedness=true 的
 ///   option；
 /// - `has_non_disabled`：是否存在非 disabled 的 option。仅当
 ///   `has_selected_after == false` 时可信（此时 step 1 的扫描必然执行）；
 ///   为 true 时调用方不消费该值，固定返回 false 并在此注明。
-fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) -> (bool, bool) {
+/// - `selected_node`（P-1）：算法跑完后唯一选中的 option（算法 step 2
+///   恒"保树序最后一个"，故至多一个）；无选中为 `None`。
+fn selectedness_setting_algorithm(
+    select: &Rc<RefCell<Node>>,
+) -> (bool, bool, Option<Rc<RefCell<Node>>>) {
     let has_multiple = select
         .borrow()
         .kind
@@ -1714,7 +1783,7 @@ fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) -> (bool, bool) {
     if has_multiple {
         // multiple 存在时算法整体 no-op（调用方 on_option_inserted_with_memo
         // 已提前短路；此分支保留给无备忘录入口）。
-        return (false, false);
+        return (false, false, None);
     }
     // Display size: 1 if size attribute absent or parses to 1.
     let display_size: u32 = select
@@ -1751,11 +1820,11 @@ fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) -> (bool, bool) {
                     }
                     // step 1 命中：恰有 1 个 selected（刚设置）→ step 2
                     // 必为 no-op，可直接返回。
-                    return (true, true);
+                    return (true, true, Some(opt.clone()));
                 }
             }
             // 全部 disabled：无 selected、无非 disabled。step 2 同样无 op。
-            return (false, false);
+            return (false, false, None);
         }
         // 已有 selected：step 1 不动，**继续落入 step 2**（可能与本次
         // 插入的 `<option selected>` 组成 ≥2 个选中而触发取消）。
@@ -1772,8 +1841,10 @@ fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) -> (bool, bool) {
             })
             .map(|(i, _)| i)
             .collect();
+        // any_selected 为真 → selected_indices 非空；last 即唯一幸存的
+        // 选中（≥2 时为树序最后一个）。
+        let last = *selected_indices.last().unwrap();
         if selected_indices.len() >= 2 {
-            let last = *selected_indices.last().unwrap();
             for &i in &selected_indices {
                 if i != last {
                     if let NodeKind::Element(ref mut e) = options[i].borrow_mut().kind {
@@ -1782,7 +1853,7 @@ fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) -> (bool, bool) {
                 }
             }
         }
-        return (true, false);
+        return (true, false, Some(options[last].clone()));
     }
 
     // Step 2: if 2+ options have selectedness=true, set all but last to
@@ -1808,9 +1879,15 @@ fn selectedness_setting_algorithm(select: &Rc<RefCell<Node>>) -> (bool, bool) {
                 }
             }
         }
-        return (true, false);
+        return (true, false, Some(options[last].clone()));
     }
-    (false, false)
+    // P-1 修正：恰有 1 个 selected 时旧实现错报 has_selected=false。旧
+    // 备忘录消费方不受影响（size≠1 时 skip 恒真），但 P-1 快路径依赖
+    // has_selected 判定"此前是否已有选中"，错报会让两个 selected 并存。
+    if let Some(&only) = selected_indices.first() {
+        return (true, false, Some(options[only].clone()));
+    }
+    (false, false, None)
 }
 
 /// "Clone an option into a selectedcontent" (§4.10.17): deep-clone all
@@ -1843,7 +1920,14 @@ fn clone_option_into_selectedcontent(
 /// If the option's nearest ancestor select exists, the option's
 /// selectedness is true, and the select has an enabled selectedcontent,
 /// then clone the option's children into the selectedcontent.
-pub fn maybe_clone_option_into_selectedcontent(option: &Rc<RefCell<Node>>) {
+///
+/// P-1：selectedcontent 查找走备忘录（见 [`SelectSelectedcontentMemo`]）。
+/// `<option selected>` × 65k 时每个 option 在自身 pop 时尚未被后续插入
+/// 取消选中，原全子树 DFS 查找构成残余 O(n²)；Absent 命中后整体 O(n)。
+pub fn maybe_clone_option_into_selectedcontent(
+    parser: &mut HtmlTreeConstructor,
+    option: &Rc<RefCell<Node>>,
+) {
     let select = match find_nearest_ancestor_select(option) {
         Some(s) => s,
         None => return,
@@ -1857,7 +1941,7 @@ pub fn maybe_clone_option_into_selectedcontent(option: &Rc<RefCell<Node>>) {
     if !selectedness {
         return;
     }
-    let selectedcontent = match get_select_enabled_selectedcontent(&select) {
+    let selectedcontent = match get_select_enabled_selectedcontent(parser, &select) {
         Some(sc) => sc,
         None => return,
     };
@@ -1877,7 +1961,8 @@ pub fn maybe_clone_option_into_selectedcontent(option: &Rc<RefCell<Node>>) {
 ///
 /// 敌意输入 `<select>` + 65k 个 `<option>` 令每次插入都全子树扫描
 /// ——O(n²) 挂起（审计 P1）。备忘录记录 `(select, has_selected,
-/// all_disabled)`，对**可证明为 no-op** 的插入直接跳过子树扫描：
+/// all_disabled, last_selected)`，对**可证明为 no-op** 的插入直接跳过
+/// 子树扫描：
 ///
 /// - step 1（选中首个非 disabled）仅在 `display_size==1 && 无已选中 &&
 ///   存在非 disabled` 时可能生效；
@@ -1886,9 +1971,17 @@ pub fn maybe_clone_option_into_selectedcontent(option: &Rc<RefCell<Node>>) {
 ///
 /// 因此对无 `selected` 属性的插入：`display_size≠1`、或已有选中、或
 /// （O 自身 disabled 且此前全 disabled）时两步均不可能改变任何状态
-/// → no-op。备忘录以 `Weak` 持有 select：升级失败（旧 select 已释放）
-/// 或非同一 select 即失效，防地址复用误命中；失效或插入自带 `selected`
-/// 时回退完整算法并重建备忘录。
+/// → no-op。
+///
+/// 带 `selected` 的插入（P-1）：算法跑完后至多一个选中（step 2 恒保树序
+/// 最后一个），备忘录 `last_selected` 即该唯一选中。新插入 O 必为 select
+/// 子树内树序**最后**的 option（解析器在 select 内只 append：select 各
+/// 插入模式不做 foster parenting，foster/template 路径不可能以 select
+/// 为祖先），故 step 2 等价于"定点取消旧选中、保 O"——O(1)，免去全子树
+/// 扫描。此前无选中时两步均 no-op，仅更新备忘录。
+///
+/// 备忘录以 `Weak` 持有 select 与 last_selected：升级失败或非同一
+/// select 即失效，防地址复用误命中；失效时回退完整算法并重建备忘录。
 pub(crate) fn on_option_inserted_with_memo(
     parser: &mut HtmlTreeConstructor,
     option: &Rc<RefCell<Node>>,
@@ -1923,18 +2016,49 @@ pub(crate) fn on_option_inserted_with_memo(
         .and_then(|m| m.select.upgrade())
         .is_some_and(|s| Rc::ptr_eq(&s, &select));
     if memo_hits_same_select {
-        let memo = parser.select_selectedness_memo.as_ref().unwrap();
-        let skip = !o_selected
-            && (!display_size_1 || memo.has_selected || (o_disabled && memo.all_disabled));
-        if skip {
-            let memo = parser.select_selectedness_memo.as_mut().unwrap();
-            memo.all_disabled = memo.all_disabled && o_disabled;
-            return;
+        if !o_selected {
+            let (has_selected, all_disabled) = {
+                let memo = parser.select_selectedness_memo.as_ref().unwrap();
+                (memo.has_selected, memo.all_disabled)
+            };
+            let skip = !display_size_1 || has_selected || (o_disabled && all_disabled);
+            if skip {
+                let memo = parser.select_selectedness_memo.as_mut().unwrap();
+                memo.all_disabled = memo.all_disabled && o_disabled;
+                return;
+            }
+        } else {
+            // P-1 快路径：本次插入自带 selected。
+            let (has_selected, last_selected) = {
+                let memo = parser.select_selectedness_memo.as_ref().unwrap();
+                (memo.has_selected, memo.last_selected.clone())
+            };
+            if !has_selected {
+                // 插入前无选中：插入后仅 O 选中——step 1 因 any_selected
+                // =true 而 no-op，step 2 因选中数 1<2 而 no-op。
+                let memo = parser.select_selectedness_memo.as_mut().unwrap();
+                memo.has_selected = true;
+                memo.last_selected = Rc::downgrade(option);
+                return;
+            }
+            if let Some(prev) = last_selected.upgrade() {
+                // 此前恰有一个选中 prev。O 是树序最后的 option → step 2
+                // "保 last" 即保 O：定点取消 prev，O 成为唯一选中。
+                if let NodeKind::Element(ref mut e) = prev.borrow_mut().kind {
+                    e.selectedness = false;
+                }
+                let memo = parser.select_selectedness_memo.as_mut().unwrap();
+                memo.last_selected = Rc::downgrade(option);
+                return;
+            }
+            // last_selected 升级失败（解析期节点只增不删，不应发生）：
+            // 落入慢路径整体重建。
         }
     }
 
     // 慢路径：完整算法（与修复前行为一致），随后重建备忘录。
-    let (has_selected_after, has_non_disabled) = selectedness_setting_algorithm(&select);
+    let (has_selected_after, has_non_disabled, selected_node) =
+        selectedness_setting_algorithm(&select);
     parser.select_selectedness_memo = Some(SelectSelectednessMemo {
         select: Rc::downgrade(&select),
         has_selected: has_selected_after,
@@ -1942,5 +2066,8 @@ pub(crate) fn on_option_inserted_with_memo(
         // 文档）；为 true 时 all_disabled 恒为 false 也无妨——该值只在
         // !has_selected 的跳过判定中被消费。
         all_disabled: !has_non_disabled,
+        last_selected: selected_node
+            .map(|n| Rc::downgrade(&n))
+            .unwrap_or_else(Weak::new),
     });
 }

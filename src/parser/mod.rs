@@ -132,6 +132,9 @@ pub struct HtmlTreeConstructor {
     /// selectedness 算法的增量备忘录（审计 F-8，见
     /// [`helpers::on_option_inserted_with_memo`]）。解析器内部状态。
     pub select_selectedness_memo: Option<SelectSelectednessMemo>,
+    /// selectedcontent 查找备忘录（审计 P-1，见
+    /// [`helpers::maybe_clone_option_into_selectedcontent`]）。解析器内部状态。
+    pub select_selectedcontent_memo: Option<SelectSelectedcontentMemo>,
 }
 
 /// [`on_option_inserted_with_memo`](crate::parser::helpers) 的备忘录条目
@@ -146,6 +149,42 @@ pub struct SelectSelectednessMemo {
     /// 截至上次完整算法执行后，是否全部 option 均 disabled（仅在
     /// `!has_selected` 时被消费）。
     pub all_disabled: bool,
+    /// `has_selected` 时指向唯一选中的 option（P-1）。算法 step 2 恒保
+    /// 树序最后一个，故至多一个选中；带 `selected` 的新插入据此做 O(1)
+    /// 定点取消旧选中，免去全子树扫描。`Weak` 防 Rc 地址复用误命中，
+    /// 升级失败时调用方回退完整算法。
+    pub last_selected: std::rc::Weak<RefCell<Node>>,
+}
+
+/// [`helpers::maybe_clone_option_into_selectedcontent`] 的 selectedcontent
+/// 查找备忘录（审计 P-1）。option pop 钩子对每个**仍选中**的 option 查找
+/// select 下首个 `selectedcontent`，原实现全子树 DFS——`<option selected>`
+/// × 65k 时每次 pop 时该 option 尚未被后续插入取消选中，构成残余 O(n²)
+/// （~2×10⁹ 次节点访问）。备忘录缓存查找结果：
+///
+/// - `Absent`：上次查找确认该 select 子树内无 selectedcontent。此后仅有
+///   **新的 selectedcontent 插入**能使其失效——由
+///   [`helpers::push_open_element`] 在插入时翻转为 `Present`（解析器
+///   只 append，树序首个一旦存在即不变）。
+/// - `Present(Weak)`：树序首个 selectedcontent；升级失败（解析期节点
+///   只增不删，不应发生）回退全子树重扫。
+///
+/// 单槽备忘录正确性：解析器同一时刻只向**当前打开**的 select 子树插入
+/// （select 关闭后插入点永不再进入其子树），所有写入方（插入钩子/重扫）
+/// 均针对当前打开的 select。
+pub struct SelectSelectedcontentMemo {
+    /// 备忘录所属的 `<select>`（`Weak` 防地址复用误命中）。
+    pub select: std::rc::Weak<RefCell<Node>>,
+    /// 查找结果缓存。
+    pub lookup: SelectedcontentLookup,
+}
+
+/// selectedcontent 查找结果缓存（P-1）。
+pub enum SelectedcontentLookup {
+    /// 该 select 子树内确认无 selectedcontent。
+    Absent,
+    /// 树序首个 selectedcontent。
+    Present(std::rc::Weak<RefCell<Node>>),
 }
 
 impl HtmlTreeConstructor {
@@ -175,6 +214,7 @@ impl HtmlTreeConstructor {
             skip_foreign_dispatch_once: false,
             fragment_root: None,
             select_selectedness_memo: None,
+            select_selectedcontent_memo: None,
         }
     }
 
@@ -418,6 +458,33 @@ mod tests {
     }
 
     #[test]
+    fn option_selected_after_step1_auto_select_deselects_previous() {
+        // P-1 快路径 2：首个 option 无 selected（step 1 自动选中），随后
+        // 带 selected 的插入须定点取消 step 1 的选中。修复前带 selected
+        // 的插入恒走慢路径；快路径若漏取消会留下两个选中。
+        assert_eq!(
+            option_selected_states("<select><option>a<option selected>b</select>"),
+            vec![false, true]
+        );
+    }
+
+    #[test]
+    fn option_size_not_1_selected_pair_keeps_last() {
+        // P-1：size≠1 时 step 1 不跑，step 2 仍保最后一个。同时锁定
+        // selectedness_setting_algorithm 的 has_selected 修正（恰 1 个
+        // selected 时旧实现错报 false，会让快路径留下两个并存选中）。
+        assert_eq!(
+            option_selected_states("<select size=2><option selected>a<option selected>b</select>"),
+            vec![false, true]
+        );
+        // 已有选中 + 无 selected 插入：no-op。
+        assert_eq!(
+            option_selected_states("<select size=2><option selected>a<option>b</select>"),
+            vec![true, false]
+        );
+    }
+
+    #[test]
     fn option_two_selects_independent_memos() {
         // 两个 select：第二个的备忘录失效重建，互不串扰。
         assert_eq!(
@@ -457,6 +524,41 @@ mod tests {
                 .map(|e| e.selectedness)
                 .unwrap_or(false),
             "first option must be selected (step 1)"
+        );
+    }
+
+    #[test]
+    fn many_selected_options_parse_fast_via_memo() {
+        // P-1（审计 F-8 半修复复核）：`<option selected>` 修复前恒走慢
+        // 路径——每次插入全子树 DFS，65k 个 ≈ 8.5×10^9 次节点访问，
+        // ~1 MB 输入即可分钟级挂起。修复后带 selected 插入走 O(1) 定点
+        // 取消（备忘录 last_selected），整体 O(n)。本测试同时是隐式
+        // 性能回归测试——O(n²) 回归会令 CI 超时。
+        let mut input = String::with_capacity(65_000 * 26);
+        input.push_str("<select>");
+        for _ in 0..65_000 {
+            input.push_str("<option selected>x</option>");
+        }
+        input.push_str("</select>");
+        let doc = crate::parse(&input);
+        let mut opts = Vec::new();
+        collect_options(&doc, &mut opts);
+        assert_eq!(opts.len(), 65_000, "all options must be in the tree");
+        // step 2 保最后一个：前 64999 个被定点取消。
+        let selected: Vec<bool> = opts
+            .iter()
+            .map(|o| {
+                o.borrow()
+                    .kind
+                    .as_element()
+                    .map(|e| e.selectedness)
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(selected[65_000 - 1], true, "last option must stay selected");
+        assert!(
+            !selected[..65_000 - 1].iter().any(|&s| s),
+            "all earlier options must be deselected"
         );
     }
 
